@@ -1,0 +1,19 @@
+# Render blueprint for forge-ci.com. The Dockerfile runs every lint, type and
+# test gate during the build, so a failing gate fails the deploy.
+services:
+  - type: web
+    name: forge-ci-com
+    runtime: docker
+    plan: starter
+    region: oregon
+    branch: main
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    numInstances: 1 # the sample store is in-process: do not scale out
+    domains:
+      - forge-ci.com
+      - www.forge-ci.com
+    envVars:
+      # JSON object: host id -> sha256 hex of that host's agent token.
+      - key: FORGE_INGEST_TOKEN_SHA256
+        sync: false

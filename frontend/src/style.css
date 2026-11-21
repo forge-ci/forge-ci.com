@@ -1,0 +1,377 @@
+/* Tokens follow the validated reference palette (dataviz skill, references/palette.md).
+   Series 1 = first host, series 2 = second: colour follows the host, never its rank. */
+.viz-root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface-1: #fcfcfb;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #898781;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.1);
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --good: #0ca30c;
+  --warning: #fab219;
+}
+
+@media (prefers-color-scheme: dark) {
+  .viz-root {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface-1: #1a1a19;
+    --text-primary: #f0efec;
+    --text-secondary: #c3c2b7;
+    --text-muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.1);
+    --series-1: #3987e5;
+    --series-2: #d95926;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+}
+
+body {
+  background: #f9f9f7;
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    background: #0d0d0d;
+  }
+}
+
+.viz-root {
+  min-height: 100vh;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 24px 20px 48px;
+  background: var(--page);
+  color: var(--text-primary);
+  font:
+    14px/1.45 system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+}
+
+h1,
+h2 {
+  margin: 0;
+  font-weight: 600;
+}
+
+h1 {
+  font-size: 22px;
+}
+
+h2 {
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.subtitle {
+  margin: 2px 0 0;
+  color: var(--text-secondary);
+}
+
+/* Status pills: icon + label, never colour alone. The colour sits on the icon. */
+.pill,
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.status-live .status-icon {
+  color: var(--good);
+}
+
+.status-stale .status-icon {
+  color: var(--warning);
+}
+
+.status-none .status-icon {
+  color: var(--text-muted);
+}
+
+.line-key {
+  display: inline-block;
+  width: 14px;
+  height: 2px;
+  border-radius: 1px;
+  flex: none;
+}
+
+.hosts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.host-card,
+.chart-card {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.host-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.host-role {
+  margin: 4px 0 12px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+
+.tile-label {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.tile-value {
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.tile-detail {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.controls-label {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface-1);
+}
+
+.segmented button {
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.segmented button + button {
+  border-left: 1px solid var(--border);
+}
+
+.segmented button[aria-pressed="true"] {
+  color: var(--text-primary);
+  font-weight: 600;
+  background: var(--page);
+}
+
+.segmented button:focus-visible {
+  outline: 2px solid var(--series-1);
+  outline-offset: -2px;
+}
+
+.charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(520px, 1fr));
+  gap: 16px;
+}
+
+.chart-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.chart-desc {
+  margin: 2px 0 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.legend {
+  display: flex;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.plot {
+  position: relative;
+  width: 100%;
+}
+
+.tooltip {
+  position: absolute;
+  top: 8px;
+  z-index: 2;
+  min-width: 140px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-1);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  pointer-events: none;
+  font-size: 12px;
+}
+
+.tooltip-time {
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tooltip-row strong {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.tooltip-label {
+  color: var(--text-secondary);
+}
+
+.uplot .u-axis {
+  font-variant-numeric: tabular-nums;
+}
+
+.table-view {
+  margin-top: 20px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 16px;
+}
+
+.table-view summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.table-view table {
+  width: 100%;
+  margin-top: 12px;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+
+.table-view th,
+.table-view td {
+  padding: 6px 8px;
+  text-align: right;
+  border-bottom: 1px solid var(--grid);
+  white-space: nowrap;
+}
+
+.table-view th:first-child,
+.table-view tbody th {
+  text-align: left;
+}
+
+.table-view thead th {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+footer {
+  margin-top: 24px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+footer a {
+  color: var(--text-secondary);
+}
+
+.fatal {
+  padding: 24px;
+  color: var(--text-primary);
+}
+
+@media (max-width: 640px) {
+  .charts {
+    grid-template-columns: 1fr;
+  }
+  .hosts {
+    grid-template-columns: 1fr;
+  }
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

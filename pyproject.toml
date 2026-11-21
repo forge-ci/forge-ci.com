@@ -1,0 +1,69 @@
+[project]
+name = "forge-ci-com"
+version = "0.1.0"
+description = "forge-ci.com: live utilization dashboard for the forge CI fleet"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.165.0",
+    "pydantic==2.14.4",
+    "uvicorn[standard]==0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "basedpyright==1.40.2",
+    "httpx2==2.16.2",
+    "pytest==9.2.0",
+    "ruff==0.17.6",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["backend", "agent", "tests"]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "D",       # docstrings: module/function docs are written where they add information
+    "COM812",  # conflicts with the formatter
+    "CPY001",  # no copyright headers
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "PLR2004", "SLF001", "INP001"]
+"agent/**" = ["INP001", "T201"]
+
+# Formatting: `ruff format` (Black-compatible style). Imports: ruff's isort rules ("I",
+# included in "ALL" above), configured here to match isort's black profile.
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+[tool.ruff.lint.isort]
+known-first-party = ["forge_dash", "forge_metrics_agent"]
+combine-as-imports = true
+
+[tool.basedpyright]
+typeCheckingMode = "all"
+pythonVersion = "3.12"
+include = ["backend", "agent", "tests"]
+extraPaths = ["backend", "agent"]
+venvPath = "."
+venv = ".venv"
+reportAny = "error"
+reportExplicitAny = "error"
+# FastAPI registers route handlers through decorators; the closures are used.
+reportUnusedFunction = "none"
+reportUnusedCallResult = "none"
+reportImplicitOverride = "error"
+
+[tool.pytest.ini_options]
+pythonpath = ["backend", "agent"]
+testpaths = ["tests"]
+addopts = "-q --strict-markers --strict-config"
+filterwarnings = ["error"]

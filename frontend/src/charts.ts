@@ -250,7 +250,16 @@ export class LiveChart {
     const idx = u.cursor.idx;
     const left = u.cursor.left;
     const x = idx === null || idx === undefined ? undefined : u.data[0][idx];
-    if (idx === null || idx === undefined || x === undefined || left === undefined || left < 0) {
+    // uPlot snaps to the nearest sample however far away it is; only show a
+    // readout when that sample is close to where the pointer actually is.
+    if (
+      idx === null ||
+      idx === undefined ||
+      x === undefined ||
+      left === undefined ||
+      left < 0 ||
+      Math.abs(u.posToVal(left, "x") - x) > GAP_S
+    ) {
       this.tooltip.hidden = true;
       return;
     }
@@ -262,7 +271,7 @@ export class LiveChart {
       key.className = "line-key";
       key.style.backgroundColor = this.theme.series[i] ?? this.theme.text;
       const strong = document.createElement("strong");
-      strong.textContent = value === null ? "—" : this.spec.format(value);
+      strong.textContent = value === null ? "no sample" : this.spec.format(value);
       const name = document.createElement("span");
       name.className = "tooltip-label";
       name.textContent = s.label;

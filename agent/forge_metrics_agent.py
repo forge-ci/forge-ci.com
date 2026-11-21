@@ -11,6 +11,7 @@ Environment:
   FORGE_INGEST_TOKEN_FILE  file holding this host's bearer token (default /etc/forge-metrics/token)
   FORGE_INTERVAL_S         seconds between samples (default 5)
   FORGE_PROC_ROOT          /proc mount (default /proc)
+  FORGE_SYS_NET            sysfs net dir used to tell physical NICs (default /sys/class/net)
 """
 
 from __future__ import annotations
@@ -28,7 +29,9 @@ from typing import final
 
 SECTOR_BYTES = 512
 # Virtual interfaces carry traffic that is already counted on a physical one.
-VIRTUAL_IFACE = re.compile(r"^(lo|veth|docker|br-|virbr|cni|flannel|vxlan|tap|tun|wg|tailscale)")
+# The kernel's answer (no /sys/class/net/<if>/device) wins; this name list is
+# only the fallback when sysfs is unavailable.
+VIRTUAL_IFACE = re.compile(r"^(lo|veth|docker|br-|virbr|cni|flannel|vxlan|tap|tun|wg|tailscale|fq)")
 # Whole disks only: partitions, device-mapper, zram and loop would double count.
 WHOLE_DISK = re.compile(r"^(sd[a-z]+|vd[a-z]+|xvd[a-z]+|hd[a-z]+|nvme\d+n\d+)$")
 MAX_BACKOFF_S = 60.0
@@ -78,13 +81,20 @@ def parse_meminfo(meminfo: str) -> dict[str, int]:
     return out
 
 
-def parse_net(netdev: str) -> tuple[int, int]:
+def is_physical(name: str, sys_net: Path | None) -> bool:
+    """True for a NIC backed by a device; bridges, veths and tunnels have none."""
+    if sys_net is not None and sys_net.is_dir():
+        return (sys_net / name / "device").exists()
+    return not VIRTUAL_IFACE.match(name)
+
+
+def parse_net(netdev: str, sys_net: Path | None = None) -> tuple[int, int]:
     """Sum rx/tx bytes over physical interfaces in /proc/net/dev."""
     rx = tx = 0
     for line in netdev.splitlines()[2:]:
         name, _, rest = line.partition(":")
         name = name.strip()
-        if not name or VIRTUAL_IFACE.match(name):
+        if not name or not is_physical(name, sys_net):
             continue
         fields = rest.split()
         rx += int(fields[0])
@@ -113,8 +123,9 @@ def rate(new: int, old: int, seconds: float) -> float:
 
 @final
 class Proc:
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, sys_net: Path | None = None) -> None:
         self.root = root
+        self.sys_net = sys_net
 
     def read(self, name: str) -> str:
         return (self.root / name).read_text(encoding="ascii", errors="replace")
@@ -122,7 +133,7 @@ class Proc:
     def counters(self) -> tuple[Counters, str]:
         stat = self.read("stat")
         busy, total = parse_cpu(stat)
-        rx, tx = parse_net(self.read("net/dev"))
+        rx, tx = parse_net(self.read("net/dev"), self.sys_net)
         dread, dwrite = parse_disk(self.read("diskstats"))
         return Counters(time.monotonic(), busy, total, rx, tx, dread, dwrite), stat
 
@@ -191,7 +202,10 @@ def main() -> int:
     token_file = Path(os.environ.get("FORGE_INGEST_TOKEN_FILE", "/etc/forge-metrics/token"))
     token = token_file.read_text(encoding="ascii").strip()
     interval = float(os.environ.get("FORGE_INTERVAL_S", "5"))
-    proc = Proc(Path(os.environ.get("FORGE_PROC_ROOT", "/proc")))
+    proc = Proc(
+        Path(os.environ.get("FORGE_PROC_ROOT", "/proc")),
+        Path(os.environ.get("FORGE_SYS_NET", "/sys/class/net")),
+    )
 
     prev, _ = proc.counters()
     backoff = interval

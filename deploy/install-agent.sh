@@ -35,12 +35,18 @@ token=$(cat)
   chmod 0644 /var/lib/forge-metrics/agent.py
   docker pull -q $image >/dev/null
   docker rm -f forge-metrics-agent >/dev/null 2>&1 || true
+  # Rotation options exist only for json-file; journald (NixOS hosts) rotates itself.
+  logopts=''
+  if [ \"\$(docker info --format '{{.LoggingDriver}}')\" = json-file ]; then
+    logopts='--log-opt max-size=1m --log-opt max-file=2'
+  fi
+  # shellcheck disable=SC2086
   docker run -d --name forge-metrics-agent \
     --restart unless-stopped \
     --network host \
     --read-only --cap-drop ALL --security-opt no-new-privileges \
     --memory 64m --cpus 0.2 --pids-limit 32 \
-    --log-opt max-size=1m --log-opt max-file=2 \
+    \$logopts \
     -v /var/lib/forge-metrics:/etc/forge-metrics:ro \
     -e FORGE_INGEST_URL=$url \
     -e FORGE_INGEST_TOKEN_FILE=/etc/forge-metrics/token \

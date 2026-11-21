@@ -7,6 +7,7 @@ import pytest
 from forge_metrics_agent import (
     Proc,
     count_cpus,
+    is_physical,
     parse_cpu,
     parse_disk,
     parse_meminfo,
@@ -63,6 +64,18 @@ def test_count_cpus() -> None:
 
 def test_parse_net_skips_virtual_interfaces() -> None:
     assert parse_net(NETDEV) == (1001, 2002)
+
+
+def test_sysfs_decides_physical_interfaces(tmp_path: Path) -> None:
+    for name in ("eno1", "eth1"):
+        (tmp_path / name / "device").mkdir(parents=True)
+    for name in ("lo", "docker0", "vethab12", "fq0"):
+        (tmp_path / name).mkdir()
+    assert is_physical("eno1", tmp_path)
+    assert not is_physical("fq0", tmp_path)
+    assert parse_net(NETDEV, tmp_path) == (1001, 2002)
+    assert not is_physical("fq0", None)  # name fallback without sysfs
+    assert is_physical("eno1", tmp_path / "missing")  # no sysfs dir: name fallback
 
 
 def test_parse_disk_counts_whole_disks_only() -> None:

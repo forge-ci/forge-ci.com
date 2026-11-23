@@ -71,11 +71,12 @@ async def _read_sample(request: Request) -> IngestSample:
 
 
 def _security_headers(response: Response, path: str) -> None:
-    csp = (
-        _CSP.replace("form-action 'none'", "form-action 'self'")
-        if path in ("/dashboard", "/soldr/pair")
-        else _CSP
-    )
+    csp = _CSP
+    if path == "/dashboard":
+        csp = _CSP.replace("form-action 'none'", "form-action 'self'")
+    elif path == "/soldr/pair":
+        # Chromium checks the GitHub redirect against the submitting page's form policy.
+        csp = _CSP.replace("form-action 'none'", "form-action 'self' https://github.com")
     response.headers.setdefault("Content-Security-Policy", csp)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "no-referrer")

@@ -62,12 +62,8 @@
   outline-offset: 4px;
 }
 
-.pair-card #code-help,
-.pair-card .pair-device {
-  font-size: 0.9rem;
-}
-
 .pair-card #code-help {
+  font-size: 0.9rem;
   margin-bottom: 1.25rem;
 }
 
@@ -78,15 +74,4 @@
   font: inherit;
   font-weight: 700;
   cursor: pointer;
-}
-
-.pair-card .pair-device {
-  border-top: 1px solid #85749a55;
-  padding-top: 1.15rem;
-  margin: 1.35rem 0 0;
-}
-
-.pair-device a {
-  color: var(--accent);
-  text-underline-offset: 0.2em;
 }

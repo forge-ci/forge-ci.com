@@ -69,3 +69,8 @@ Register a GitHub OAuth app with callback
 Set `FORGE_SOLDR_SIGNING_KEY` to a stable, randomly generated secret of at least
 32 bytes. Rotating the signing key invalidates previously issued credentials.
 GitHub access tokens are used to fetch the account identity during the callback.
+
+Configure `FORGE_SOLDR_WORKER_ORIGIN` with the HTTPS origin of a worker that
+accepts Forge CI grants. Set `FORGE_SOLDR_WORKER_KEY` to a separate, randomly
+generated secret of at least 32 bytes and provision it on that worker.
+The discovery API returns no worker until both settings are valid.

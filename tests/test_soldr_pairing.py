@@ -13,6 +13,11 @@ class Credential(BaseModel):
     token: str
 
 
+class WorkerGrant(BaseModel):
+    origin: str
+    token: str
+
+
 class Pairing(BaseModel):
     device_code: str
     user_code: str
@@ -64,6 +69,8 @@ def test_github_approval_issues_one_device_credential(
 
     monkeypatch.setattr(GitHubPairing, "from_env", lambda: config)
     monkeypatch.setattr(GitHubPairing, "identity", identity)
+    monkeypatch.setenv("FORGE_SOLDR_WORKER_ORIGIN", "https://build.forge-ci.com")
+    monkeypatch.setenv("FORGE_SOLDR_WORKER_KEY", "worker-key" * 4)
     app, _ = create_app(Settings())
     with TestClient(app, base_url="https://forge-ci.com") as client:
         response = client.post("/api/v1/soldr/pairings")
@@ -96,6 +103,20 @@ def test_github_approval_issues_one_device_credential(
                 assert replacement.get(session, headers=bearer).status_code == 204
                 forged = {"Authorization": f"Bearer {credential.token}0"}
                 assert replacement.get(session, headers=forged).status_code == 401
+                discovery = "/api/v1/soldr/worker"
+                assert replacement.post(discovery, headers=forged).status_code == 401
+                response = replacement.post(discovery, headers=bearer)
+                assert response.status_code == 200
+                assert response.headers["cache-control"] == "no-store"
+                worker = WorkerGrant.model_validate_json(response.content)
+                assert worker.origin == "https://build.forge-ci.com"
+                assert worker.token.startswith("w1.6856673.")
+                assert (
+                    replacement.get(
+                        session, headers={"Authorization": f"Bearer {worker.token}"}
+                    ).status_code
+                    == 401
+                )
             assert client.post("/api/v1/soldr/pairings/poll", headers=headers).status_code == 404
         else:
             assert response.status_code == 202

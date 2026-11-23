@@ -56,7 +56,11 @@ def test_browser_has_a_pairing_code_form() -> None:
         assert 'name="user_code"' in response.text
         assert "soldr pair" in response.text
         assert response.headers["cache-control"] == "no-store"
-        assert "form-action 'self'" in response.headers["content-security-policy"]
+        pairing_policy = response.headers["content-security-policy"]
+        assert "form-action 'self' https://github.com" in pairing_policy
+        dashboard = client.get("/dashboard")
+        assert "form-action 'self'" in dashboard.headers["content-security-policy"]
+        assert "github.com" not in dashboard.headers["content-security-policy"]
 
 
 @pytest.mark.parametrize(("account_id", "expected"), [(6856673, 200), (42, 403)])

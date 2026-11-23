@@ -1,6 +1,6 @@
 :root {
   color-scheme: light dark;
-  --page: #e9eef4;
+  --page: #121521;
   --card: #fff;
   --ink: #142032;
   --subtle: #4e6076;
@@ -12,7 +12,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --page: #111a27;
+    --page: #121521;
     --card: #192637;
     --ink: #eef4fb;
     --subtle: #aebfd3;
@@ -34,6 +34,7 @@ body {
 }
 
 .splash {
+  position: relative;
   box-sizing: border-box;
   width: min(100%, 30rem);
   padding: clamp(1.5rem, 7vw, 3.25rem);
@@ -73,9 +74,24 @@ p {
   text-decoration: none;
 }
 
-.sign-in:hover { opacity: 0.87; }
+.sign-in:hover {
+  opacity: 0.87;
+}
 
 .sign-in:focus-visible {
   outline: 3px solid var(--accent);
   outline-offset: 4px;
+}
+
+.splash-background {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.splash-background.is-rendered {
+  opacity: 1;
 }

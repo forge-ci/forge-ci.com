@@ -10,11 +10,13 @@
     <title>Forge CI · Sign in</title>
   </head>
   <body>
+    <canvas class="splash-background" aria-hidden="true"></canvas>
     <main class="splash">
       <img class="brand" src="/favicon.svg" width="48" height="48" alt="" />
       <h1>Forge CI</h1>
       <p>Connect Soldr and see your build fleet.</p>
       <a class="sign-in" href="/login">Sign in with GitHub <span aria-hidden="true">↗</span></a>
     </main>
+    <script type="module" src="/src/splash.ts"></script>
   </body>
 </html>

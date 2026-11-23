@@ -159,3 +159,26 @@ def test_token_hash_config_is_validated() -> None:
         parse_token_hashes(json.dumps({"dell-jw22zc3": "not-hex"}))
     with pytest.raises(ConfigError):
         parse_token_hashes("[1]")
+
+
+def test_e640_inventory_tracks_both_hosts_independently(clock: Clock) -> None:
+    first, second = "dell-jw22zc3", "dell-fsx3mn2"
+    app, _ = create_app(
+        Settings(token_hashes={first: _hash(TOKEN), second: _hash(DROPLET_TOKEN)}),
+        clock=clock,
+    )
+    with TestClient(app) as client:
+        hosts = host_map(client)
+        assert {first, second, "admin-droplet"} <= hosts.keys()
+        for hostname in (first, second):
+            assert hosts[hostname].host.label == hostname
+            assert hosts[hostname].latest is None
+            assert not hosts[hostname].online
+
+        assert post(client, TOKEN, sample()) == 204
+        clock.now += 21
+        assert post(client, DROPLET_TOKEN, sample()) == 204
+        hosts = host_map(client)
+        assert hosts[first].latest is not None
+        assert not hosts[first].online
+        assert hosts[second].online

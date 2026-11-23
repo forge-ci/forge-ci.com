@@ -58,6 +58,10 @@ class Pairings:
         self.pending: dict[str, PendingPairing] = {}
 
     async def start(self, response: Response) -> PairingStart:
+        if self.github is None:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE, "Soldr access unavailable", _HEADERS
+            )
         now = self.clock()
         self.pending = {key: entry for key, entry in self.pending.items() if entry.expires_at > now}
         if len(self.pending) >= _MAX_PENDING:

@@ -21,7 +21,11 @@ class Pairing(BaseModel):
     interval: int
 
 
-def test_pairing_start_returns_distinct_public_and_private_codes() -> None:
+def test_pairing_start_returns_distinct_public_and_private_codes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = GitHubPairing("id", "secret", 6856673, b"test-key" * 4)
+    monkeypatch.setattr(GitHubPairing, "from_env", lambda: config)
     app, _ = create_app(Settings())
     with TestClient(app) as client:
         response = client.post("/api/v1/soldr/pairings")
@@ -95,3 +99,10 @@ def test_github_approval_issues_one_device_credential(
             assert client.post("/api/v1/soldr/pairings/poll", headers=headers).status_code == 404
         else:
             assert response.status_code == 202
+
+
+def test_pairing_is_disabled_without_github_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(GitHubPairing, "from_env", lambda: None)
+    app, _ = create_app(Settings())
+    with TestClient(app) as client:
+        assert client.post("/api/v1/soldr/pairings").status_code == 503

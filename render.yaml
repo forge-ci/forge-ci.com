@@ -17,3 +17,11 @@ services:
       # JSON object: host id -> sha256 hex of that host's agent token.
       - key: FORGE_INGEST_TOKEN_SHA256
         sync: false
+      - key: FORGE_SOLDR_GITHUB_CUSTOMER_ID
+        value: "6856673"
+      - key: FORGE_SOLDR_SIGNING_KEY
+        generateValue: true
+      - key: FORGE_SOLDR_GITHUB_CLIENT_ID
+        sync: false
+      - key: FORGE_SOLDR_GITHUB_CLIENT_SECRET
+        sync: false

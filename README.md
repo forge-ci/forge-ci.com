@@ -63,10 +63,14 @@ order), add its token hash to the env var, run the installer.
 ## Soldr pairing
 
 Register a GitHub OAuth app with callback
-`https://forge-ci.com/soldr/pair/github`. On the Render service, configure
-`FORGE_SOLDR_GITHUB_CLIENT_ID`, `FORGE_SOLDR_GITHUB_CLIENT_SECRET`, and
-`FORGE_SOLDR_GITHUB_CUSTOMER_ID` (the allowed account's numeric GitHub ID).
-Set `FORGE_SOLDR_SIGNING_KEY` to a stable, randomly generated secret of at least
+`https://forge-ci.com/soldr/pair/github`. Set `FORGE_SOLDR_GITHUB_CLIENT_ID`
+and `FORGE_SOLDR_GITHUB_CLIENT_SECRET` on the `forge-ci-com` Render service.
+For an existing service, add those two values in the Render Dashboard.
+
+The Blueprint sets the first customer's numeric GitHub ID and generates a
+persistent device signing key. On a service deployed outside the Blueprint,
+set `FORGE_SOLDR_GITHUB_CUSTOMER_ID` to the allowed account ID and
+`FORGE_SOLDR_SIGNING_KEY` to a stable, randomly generated secret of at least
 32 bytes. Rotating the signing key invalidates previously issued credentials.
 GitHub access tokens are used to fetch the account identity during the callback.
 

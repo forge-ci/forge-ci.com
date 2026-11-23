@@ -94,11 +94,36 @@ class Pairings:
             return Response(status_code=status.HTTP_202_ACCEPTED, headers=_HEADERS)
         del self.pending[key]
         claims = f"v1.{pairing.account.id}.{secrets.token_urlsafe(32)}"
-        signature = hmac.digest(self.github.signing_key, claims.encode(), "sha256").hex()
+        signature = self.sign(claims, self.github.signing_key)
         return JSONResponse(
             {"token": f"{claims}.{signature}", "github_login": pairing.account.login},
             headers=_HEADERS,
         )
+
+    @staticmethod
+    def sign(claims: str, key: bytes) -> str:
+        return hmac.digest(key, claims.encode(), "sha256").hex()
+
+    async def session(self, authorization: Annotated[str | None, Header()] = None) -> Response:
+        if self.github is None:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE, "Soldr access unavailable", _HEADERS
+            )
+        scheme, _, credential = (authorization or "").partition(" ")
+        claims, _, signature = credential.rpartition(".")
+        version, _, account_and_nonce = claims.partition(".")
+        account, _, nonce = account_and_nonce.partition(".")
+        if (
+            scheme.lower() != "bearer"
+            or version != "v1"
+            or account != str(self.github.customer_id)
+            or not nonce
+            or not hmac.compare_digest(
+                signature.encode(), self.sign(claims, self.github.signing_key).encode()
+            )
+        ):
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid Soldr credential", _HEADERS)
+        return Response(status_code=status.HTTP_204_NO_CONTENT, headers=_HEADERS)
 
     async def form(self) -> HTMLResponse:
         return HTMLResponse(
@@ -182,6 +207,7 @@ def install_pairing_routes(app: FastAPI, clock: Callable[[], float]) -> None:
     pairings = Pairings(clock, GitHubPairing.from_env())
     app.post("/api/v1/soldr/pairings", status_code=status.HTTP_201_CREATED)(pairings.start)
     app.post("/api/v1/soldr/pairings/poll")(pairings.poll)
+    app.get("/api/v1/soldr/session")(pairings.session)
     app.get("/soldr/pair")(pairings.form)
     app.post("/soldr/pair")(pairings.begin_github)
     app.get("/soldr/pair/github")(pairings.finish_github)

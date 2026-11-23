@@ -9,6 +9,10 @@ from forge_dash.config import Settings
 from forge_dash.soldr_github import GitHubIdentity, GitHubPairing
 
 
+class Credential(BaseModel):
+    token: str
+
+
 class Pairing(BaseModel):
     device_code: str
     user_code: str
@@ -80,6 +84,14 @@ def test_github_approval_issues_one_device_credential(
             assert response.status_code == 200
             assert b'"github_login":"customer"' in response.content
             assert b'"token":"v1.6856673.' in response.content
+            credential = Credential.model_validate_json(response.content)
+            session = "/api/v1/soldr/session"
+            bearer = {"Authorization": f"Bearer {credential.token}"}
+            replacement_app, _ = create_app(Settings())
+            with TestClient(replacement_app) as replacement:
+                assert replacement.get(session, headers=bearer).status_code == 204
+                forged = {"Authorization": f"Bearer {credential.token}0"}
+                assert replacement.get(session, headers=forged).status_code == 401
             assert client.post("/api/v1/soldr/pairings/poll", headers=headers).status_code == 404
         else:
             assert response.status_code == 202

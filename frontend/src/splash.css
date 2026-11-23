@@ -1,0 +1,81 @@
+:root {
+  color-scheme: light dark;
+  --page: #e9eef4;
+  --card: #fff;
+  --ink: #142032;
+  --subtle: #4e6076;
+  --line: #cbd6e2;
+  --accent: #174b97;
+  --button-ink: #fff;
+  font-family: "Geist", "Segoe UI", system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #111a27;
+    --card: #192637;
+    --ink: #eef4fb;
+    --subtle: #aebfd3;
+    --line: #364961;
+    --accent: #9bc3ff;
+    --button-ink: #17273d;
+  }
+}
+
+body {
+  min-height: 100dvh;
+  margin: 0;
+  padding: 1.25rem;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  background: var(--page);
+  color: var(--ink);
+}
+
+.splash {
+  box-sizing: border-box;
+  width: min(100%, 30rem);
+  padding: clamp(1.5rem, 7vw, 3.25rem);
+  border: 1px solid var(--line);
+  border-radius: 1.25rem;
+  background: var(--card);
+}
+
+.brand {
+  display: block;
+  margin-bottom: 1.5rem;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(2.15rem, 8vw, 3.5rem);
+  letter-spacing: -0.065em;
+  line-height: 1.05;
+}
+
+p {
+  color: var(--subtle);
+  margin: 0.85rem 0 2rem;
+  line-height: 1.55;
+}
+
+.sign-in {
+  display: inline-flex;
+  align-items: center;
+  gap: 1.4rem;
+  padding: 0.9rem 1.05rem;
+  min-height: 1.25rem;
+  border-radius: 0.55rem;
+  background: var(--accent);
+  color: var(--button-ink);
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.sign-in:hover { opacity: 0.87; }
+
+.sign-in:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 4px;
+}

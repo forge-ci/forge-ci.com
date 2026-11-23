@@ -118,7 +118,18 @@ function buildShell(): void {
   const header = el("header", "top");
   const titles = el("div");
   titles.append(el("h1", undefined, "forge-ci"), el("p", "subtitle", "Fleet utilization, live"));
-  header.append(titles, connection);
+  const actions = el("nav", "dashboard-actions");
+  actions.setAttribute("aria-label", "Account");
+  const connect = el("a", undefined, "Connect Soldr");
+  connect.href = "/soldr/pair";
+  const logout = el("form");
+  logout.method = "post";
+  logout.action = "/logout";
+  const signOut = el("button", undefined, "Sign out");
+  signOut.type = "submit";
+  logout.append(signOut);
+  actions.append(connection, connect, logout);
+  header.append(titles, actions);
 
   const controls = el("div", "controls");
   const group = el("div", "segmented");

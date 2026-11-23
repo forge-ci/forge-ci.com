@@ -15,6 +15,7 @@ from fastapi import Header, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, ValidationError
 
+from forge_dash.browser_login import STATE_PREFIX, BrowserLogin
 from forge_dash.soldr_github import GitHubIdentity, GitHubPairing
 
 if TYPE_CHECKING:
@@ -259,12 +260,23 @@ class Pairings:
         return response
 
 
-def install_pairing_routes(app: FastAPI, clock: Callable[[], float]) -> None:
-    pairings = Pairings(clock, GitHubPairing.from_env())
+def install_pairing_routes(app: FastAPI, clock: Callable[[], float]) -> BrowserLogin:
+    github = GitHubPairing.from_env()
+    pairings = Pairings(clock, github)
+    browser = BrowserLogin(github, clock)
+
+    async def github_callback(request: Request, state: str, code: str) -> Response:
+        if state.startswith(STATE_PREFIX):
+            return await browser.finish(request, state, code)
+        return await pairings.finish_github(request, state, code)
+
     app.post("/api/v1/soldr/pairings", status_code=status.HTTP_201_CREATED)(pairings.start)
     app.post("/api/v1/soldr/pairings/poll")(pairings.poll)
     app.get("/api/v1/soldr/session")(pairings.session)
     app.post("/api/v1/soldr/worker")(pairings.discover_worker)
     app.get("/soldr/pair")(pairings.form)
     app.post("/soldr/pair")(pairings.begin_github)
-    app.get("/soldr/pair/github")(pairings.finish_github)
+    app.get("/soldr/pair/github")(github_callback)
+    app.get("/login")(browser.begin)
+    app.post("/logout")(browser.logout)
+    return browser

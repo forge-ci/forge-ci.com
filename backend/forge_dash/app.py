@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 from forge_dash.config import HOSTS, Settings
 from forge_dash.models import History, HostStatus, IngestSample, Sample
+from forge_dash.soldr_pairing import install_pairing_routes
 from forge_dash.store import DROPPED, MetricsStore
 
 if TYPE_CHECKING:
@@ -181,6 +182,7 @@ def create_app(
     app.get("/api/hosts")(dash.hosts)
     app.get("/api/history")(dash.history)
     app.get("/api/stream")(dash.stream)
+    install_pairing_routes(app, clock)
     if dash.settings.static_dir is not None:
         app.mount("/", StaticFiles(directory=dash.settings.static_dir, html=True), name="frontend")
     return app, dash

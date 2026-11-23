@@ -149,7 +149,10 @@ def test_splash_and_dashboard_require_browser_login(
     (tmp_path / "splash.html").write_text("Sign in with GitHub")
     (tmp_path / "index.html").write_text("Fleet utilization")
     (tmp_path / "assets").mkdir()
-    app, _ = create_app(Settings(static_dir=tmp_path))
+    issued_at = 1_800_000_000
+    now = issued_at
+    week = 7 * 24 * 60 * 60
+    app, _ = create_app(Settings(static_dir=tmp_path), clock=lambda: now)
     with TestClient(app, base_url="https://forge-ci.com", follow_redirects=False) as client:
         assert client.get("/").text == "Sign in with GitHub"
         assert client.get("/dashboard").headers["location"] == "/"
@@ -163,8 +166,20 @@ def test_splash_and_dashboard_require_browser_login(
             assert other_browser.get("/soldr/pair/github", params=params).status_code == 400
         callback = client.get("/soldr/pair/github", params=params)
         assert callback.headers["location"] == "/dashboard"
-        assert "HttpOnly" in callback.headers["set-cookie"]
+        session_cookie = next(
+            cookie
+            for cookie in callback.headers.get_list("set-cookie")
+            if cookie.startswith("__Host-forge-session=")
+        )
+        assert "HttpOnly" in session_cookie
+        assert f"Max-Age={week}" in session_cookie
         assert client.get("/dashboard").text == "Fleet utilization"
         assert client.get("/soldr/pair/github", params=params).status_code == 400
         assert client.post("/logout").headers["location"] == "/"
         assert client.get("/dashboard").headers["location"] == "/"
+
+        headers = {"Cookie": session_cookie.split(";", 1)[0]}
+        now = issued_at + week - 1
+        assert client.get("/dashboard", headers=headers).text == "Fleet utilization"
+        now += 1
+        assert client.get("/dashboard", headers=headers).headers["location"] == "/"

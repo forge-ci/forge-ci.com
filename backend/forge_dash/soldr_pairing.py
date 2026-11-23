@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Annotated, final
 from urllib.parse import parse_qs, urlsplit
 
 from fastapi import Header, HTTPException, Request, Response, status
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, ValidationError
 
 from forge_dash.browser_login import STATE_PREFIX, BrowserLogin
@@ -20,6 +20,7 @@ from forge_dash.soldr_github import GitHubIdentity, GitHubPairing
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from pathlib import Path
 
     from fastapi import FastAPI
 
@@ -182,14 +183,23 @@ class Pairings:
             headers=_HEADERS,
         )
 
-    async def form(self) -> HTMLResponse:
+    @staticmethod
+    def form(static_dir: Path | None) -> Response:
+        if static_dir is not None:
+            page = static_dir / "pair.html"
+            if page.is_file():
+                return FileResponse(page, headers=_HEADERS)
         return HTMLResponse(
             """<!doctype html>
 <html lang="en"><meta charset="utf-8"><title>Pair Soldr</title>
 <main><h1>Pair Soldr</h1>
-<form method="post"><label for="code">Code shown by Soldr</label>
+<p>Paste the one-time code from the terminal session that linked to this page.</p>
+<form method="post"><label for="code">Forge CI pairing code</label>
 <input id="code" name="user_code" required maxlength="11" autocomplete="off">
-<button>Continue with GitHub</button></form></main></html>""",
+<button>Continue with GitHub</button></form>
+<p>Did Soldr send you to GitHub?
+<a href="https://github.com/login/device">Enter your device code on GitHub</a>.</p>
+</main></html>""",
             headers=_HEADERS,
         )
 
@@ -260,7 +270,9 @@ class Pairings:
         return response
 
 
-def install_pairing_routes(app: FastAPI, clock: Callable[[], float]) -> BrowserLogin:
+def install_pairing_routes(
+    app: FastAPI, clock: Callable[[], float], static_dir: Path | None
+) -> BrowserLogin:
     github = GitHubPairing.from_env()
     pairings = Pairings(clock, github)
     browser = BrowserLogin(github, clock)
@@ -274,7 +286,11 @@ def install_pairing_routes(app: FastAPI, clock: Callable[[], float]) -> BrowserL
     app.post("/api/v1/soldr/pairings/poll")(pairings.poll)
     app.get("/api/v1/soldr/session")(pairings.session)
     app.post("/api/v1/soldr/worker")(pairings.discover_worker)
-    app.get("/soldr/pair")(pairings.form)
+
+    @app.get("/soldr/pair", response_model=None)
+    async def pairing_form() -> Response:
+        return pairings.form(static_dir)
+
     app.post("/soldr/pair")(pairings.begin_github)
     app.get("/soldr/pair/github")(github_callback)
     app.get("/login")(browser.begin)

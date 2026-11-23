@@ -1,0 +1,92 @@
+.pair-page {
+  color-scheme: dark;
+  background: radial-gradient(ellipse at 25% 12%, #32204b, #10101c 70%);
+}
+
+.pair-page .splash-background.is-rendered {
+  opacity: 0.72;
+}
+
+.pair-card {
+  --accent: #e8d8ff;
+  --ink: #faf5ff;
+  --subtle: #cbc2d9;
+  --button-ink: #271937;
+  padding: clamp(1.4rem, 6vw, 2.75rem);
+  border-color: #a78acf65;
+  background: linear-gradient(145deg, #252034f5, #161320fa 62%);
+  box-shadow:
+    0 24px 90px #08060d9e,
+    inset 0 1px #ead4ff25;
+  color: var(--ink);
+}
+
+.pair-home {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 1.75rem;
+  color: var(--ink);
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.pair-card label {
+  display: block;
+  margin-bottom: 0.6rem;
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+
+.pair-card input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 0.95rem;
+  border: 1px solid #847297;
+  border-radius: 0.65rem;
+  background: #110d19;
+  color: var(--ink);
+  font:
+    600 1.15rem ui-monospace,
+    monospace;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.pair-card input::placeholder {
+  color: #a99ab9;
+}
+
+.pair-card :is(input, a):focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 4px;
+}
+
+.pair-card #code-help,
+.pair-card .pair-device {
+  font-size: 0.9rem;
+}
+
+.pair-card #code-help {
+  margin-bottom: 1.25rem;
+}
+
+.pair-card .sign-in {
+  justify-content: space-between;
+  width: 100%;
+  border: 0;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.pair-card .pair-device {
+  border-top: 1px solid #85749a55;
+  padding-top: 1.15rem;
+  margin: 1.35rem 0 0;
+}
+
+.pair-device a {
+  color: var(--accent);
+  text-underline-offset: 0.2em;
+}

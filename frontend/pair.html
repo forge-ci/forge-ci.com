@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/splash.css" />
+    <link rel="stylesheet" href="/src/pair.css" />
+    <title>Pair Soldr · Forge CI</title>
+  </head>
+  <body class="pair-page">
+    <canvas class="splash-background" aria-hidden="true"></canvas>
+    <main class="splash pair-card">
+      <a class="pair-home" href="/"
+        ><img src="/favicon.svg" width="32" height="32" alt="" /> Forge CI</a
+      >
+      <h1>Pair Soldr</h1>
+      <p>Connect this Soldr session to your GitHub account.</p>
+      <form method="post" action="/soldr/pair">
+        <label for="code">Forge CI pairing code</label>
+        <input
+          id="code"
+          name="user_code"
+          required
+          maxlength="11"
+          placeholder="XXXXX-XXXXX"
+          pattern="[A-Za-z2-9]{5}-[A-Za-z2-9]{5}"
+          autocomplete="off"
+          autocapitalize="characters"
+          spellcheck="false"
+          aria-describedby="code-help"
+        />
+        <p id="code-help">
+          Paste the one-time code from the terminal session that opened or linked to this page.
+        </p>
+        <button class="sign-in" type="submit">
+          Continue with GitHub <span aria-hidden="true">↗</span>
+        </button>
+      </form>
+      <p class="pair-device">
+        Did Soldr send you to GitHub?
+        <a href="https://github.com/login/device">Enter your device code on GitHub</a>.
+      </p>
+    </main>
+    <script type="module" src="/src/splash.ts"></script>
+  </body>
+</html>

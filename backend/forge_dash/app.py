@@ -187,8 +187,8 @@ def create_app(
     app.get("/api/hosts")(dash.hosts)
     app.get("/api/history")(dash.history)
     app.get("/api/stream")(dash.stream)
-    browser = install_pairing_routes(app, clock)
     static_dir = dash.settings.static_dir
+    browser = install_pairing_routes(app, clock, static_dir)
     if static_dir is not None:
 
         @app.get("/", response_model=None)

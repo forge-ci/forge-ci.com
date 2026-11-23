@@ -1,7 +1,7 @@
 # forge-ci.com
 
 Live utilization dashboard for the forge CI fleet: the **E640** self-hosted
-runner pool (`dell-jw22zc3`) and the **admin droplet** (`signal.forge-ci.com`,
+runner fleet (`dell-jw22zc3` and `dell-fsx3mn2`) and the **admin droplet** (`signal.forge-ci.com`,
 DigitalOcean nyc1).
 
 ```
@@ -44,7 +44,7 @@ and `cd frontend && npm run dev` (Vite proxies `/api` to port 8000).
 
 Render web service `forge-ci-com` (Docker runtime, see `render.yaml`) builds
 this public repo. Set `FORGE_INGEST_TOKEN_SHA256` to
-`{"dell-jw22zc3": "<sha256 hex>", "admin-droplet": "<sha256 hex>"}`.
+`{"dell-jw22zc3": "<sha256 hex>", "dell-fsx3mn2": "<sha256 hex>", "admin-droplet": "<sha256 hex>"}`.
 
 Install or update an agent (the token goes over stdin and lands in
 `/var/lib/forge-metrics/token`, mode 0600):

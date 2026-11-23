@@ -18,7 +18,13 @@ _TOKEN_MAP = TypeAdapter(dict[str, str])
 HOSTS: tuple[HostInfo, ...] = (
     HostInfo(
         id="dell-jw22zc3",
-        label="E640",
+        label="dell-jw22zc3",
+        role="Dell VxRail E640 (PowerEdge R640): self-hosted GitHub Actions runner pool",
+        location="on-prem",
+    ),
+    HostInfo(
+        id="dell-fsx3mn2",
+        label="dell-fsx3mn2",
         role="Dell VxRail E640 (PowerEdge R640): self-hosted GitHub Actions runner pool",
         location="on-prem",
     ),

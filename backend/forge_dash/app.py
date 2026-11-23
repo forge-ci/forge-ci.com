@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 from forge_dash.config import HOSTS, Settings
 from forge_dash.models import History, HostStatus, IngestSample, Sample
+from forge_dash.soldr_pairing import install_pairing_routes
 from forge_dash.store import DROPPED, MetricsStore
 
 if TYPE_CHECKING:
@@ -70,7 +71,10 @@ async def _read_sample(request: Request) -> IngestSample:
 
 
 def _security_headers(response: Response, path: str) -> None:
-    response.headers.setdefault("Content-Security-Policy", _CSP)
+    csp = (
+        _CSP.replace("form-action 'none'", "form-action 'self'") if path == "/soldr/pair" else _CSP
+    )
+    response.headers.setdefault("Content-Security-Policy", csp)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
     response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
@@ -181,6 +185,7 @@ def create_app(
     app.get("/api/hosts")(dash.hosts)
     app.get("/api/history")(dash.history)
     app.get("/api/stream")(dash.stream)
+    install_pairing_routes(app, clock)
     if dash.settings.static_dir is not None:
         app.mount("/", StaticFiles(directory=dash.settings.static_dir, html=True), name="frontend")
     return app, dash

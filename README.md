@@ -59,3 +59,13 @@ no capabilities, 64 MB and 0.2 CPU. Remove it with `docker rm -f forge-metrics-a
 
 Adding a host: add a `HostInfo` to `backend/forge_dash/config.py` (order = colour
 order), add its token hash to the env var, run the installer.
+
+## Soldr pairing
+
+Register a GitHub OAuth app with callback
+`https://forge-ci.com/soldr/pair/github`. On the Render service, configure
+`FORGE_SOLDR_GITHUB_CLIENT_ID`, `FORGE_SOLDR_GITHUB_CLIENT_SECRET`, and
+`FORGE_SOLDR_GITHUB_CUSTOMER_ID` (the allowed account's numeric GitHub ID).
+Set `FORGE_SOLDR_SIGNING_KEY` to a stable, randomly generated secret of at least
+32 bytes. Rotating the signing key invalidates previously issued credentials.
+GitHub access tokens are used to fetch the account identity during the callback.

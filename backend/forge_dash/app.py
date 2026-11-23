@@ -71,7 +71,10 @@ async def _read_sample(request: Request) -> IngestSample:
 
 
 def _security_headers(response: Response, path: str) -> None:
-    response.headers.setdefault("Content-Security-Policy", _CSP)
+    csp = (
+        _CSP.replace("form-action 'none'", "form-action 'self'") if path == "/soldr/pair" else _CSP
+    )
+    response.headers.setdefault("Content-Security-Policy", csp)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
     response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")

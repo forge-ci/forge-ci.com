@@ -1,3 +1,4 @@
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -127,3 +128,37 @@ def test_pairing_is_disabled_without_github_configuration(monkeypatch: pytest.Mo
     app, _ = create_app(Settings())
     with TestClient(app) as client:
         assert client.post("/api/v1/soldr/pairings").status_code == 503
+
+
+def test_splash_and_dashboard_require_browser_login(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config = GitHubPairing("id", "secret", 6856673, b"test-key" * 4)
+    monkeypatch.setattr(GitHubPairing, "from_env", lambda: config)
+
+    def identity(_config: GitHubPairing, _code: str, _verifier: str) -> GitHubIdentity:
+        return GitHubIdentity(id=6856673, login="customer")
+
+    monkeypatch.setattr(GitHubPairing, "identity", identity)
+    (tmp_path / "splash.html").write_text("Sign in with GitHub")
+    (tmp_path / "index.html").write_text("Fleet utilization")
+    (tmp_path / "assets").mkdir()
+    app, _ = create_app(Settings(static_dir=tmp_path))
+    with TestClient(app, base_url="https://forge-ci.com", follow_redirects=False) as client:
+        assert client.get("/").text == "Sign in with GitHub"
+        assert client.get("/dashboard").headers["location"] == "/"
+        assert client.get("/index.html").status_code == 404
+        login = client.get("/login")
+        assert login.status_code == 303
+        query = parse_qs(urlparse(login.headers["location"]).query)
+        assert query["code_challenge_method"] == ["S256"]
+        params = {"state": query["state"][0], "code": "github-code"}
+        with TestClient(app, base_url="https://forge-ci.com") as other_browser:
+            assert other_browser.get("/soldr/pair/github", params=params).status_code == 400
+        callback = client.get("/soldr/pair/github", params=params)
+        assert callback.headers["location"] == "/dashboard"
+        assert "HttpOnly" in callback.headers["set-cookie"]
+        assert client.get("/dashboard").text == "Fleet utilization"
+        assert client.get("/soldr/pair/github", params=params).status_code == 400
+        assert client.post("/logout").headers["location"] == "/"
+        assert client.get("/dashboard").headers["location"] == "/"

@@ -9,7 +9,7 @@ import time
 from typing import TYPE_CHECKING, Annotated, final
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
@@ -72,7 +72,9 @@ async def _read_sample(request: Request) -> IngestSample:
 
 def _security_headers(response: Response, path: str) -> None:
     csp = (
-        _CSP.replace("form-action 'none'", "form-action 'self'") if path == "/soldr/pair" else _CSP
+        _CSP.replace("form-action 'none'", "form-action 'self'")
+        if path in ("/dashboard", "/soldr/pair")
+        else _CSP
     )
     response.headers.setdefault("Content-Security-Policy", csp)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
@@ -185,9 +187,23 @@ def create_app(
     app.get("/api/hosts")(dash.hosts)
     app.get("/api/history")(dash.history)
     app.get("/api/stream")(dash.stream)
-    install_pairing_routes(app, clock)
-    if dash.settings.static_dir is not None:
-        app.mount("/", StaticFiles(directory=dash.settings.static_dir, html=True), name="frontend")
+    browser = install_pairing_routes(app, clock)
+    static_dir = dash.settings.static_dir
+    if static_dir is not None:
+
+        @app.get("/", response_model=None)
+        async def splash(request: Request) -> Response:
+            return browser.splash(request, static_dir)
+
+        @app.get("/dashboard", response_model=None)
+        async def dashboard(request: Request) -> Response:
+            return browser.dashboard(request, static_dir)
+
+        @app.get("/favicon.svg")
+        async def favicon() -> FileResponse:
+            return FileResponse(static_dir / "favicon.svg")
+
+        app.mount("/assets", StaticFiles(directory=static_dir / "assets"), name="assets")
     return app, dash
 
 

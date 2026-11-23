@@ -377,3 +377,26 @@ footer a {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+.dashboard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px 14px;
+}
+
+.dashboard-actions a,
+.dashboard-actions button {
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.dashboard-actions button {
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}

@@ -5,10 +5,11 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import os
 import secrets
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, final
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlsplit
 
 from fastapi import Header, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -25,6 +26,9 @@ _EXPIRES_IN = 600
 _POLL_INTERVAL = 5
 _MAX_PENDING = 1024
 _MAX_FORM_BYTES = 256
+_WORKER_GRANT_SECONDS = 900
+_MIN_WORKER_KEY_BYTES = 32
+_HTTPS_PORT = 443
 _HEADERS = {"Cache-Control": "no-store"}
 _USER_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 
@@ -50,11 +54,41 @@ class PendingPairing:
     account: GitHubIdentity | None = None
 
 
+@dataclass(frozen=True)
+class Worker:
+    origin: str
+    key: bytes
+
+    @classmethod
+    def from_env(cls) -> Worker | None:
+        origin = os.environ.get("FORGE_SOLDR_WORKER_ORIGIN", "").rstrip("/")
+        key = os.environ.get("FORGE_SOLDR_WORKER_KEY", "").encode()
+        try:
+            url = urlsplit(origin)
+            port = url.port
+        except ValueError:
+            return None
+        if (
+            url.scheme != "https"
+            or not url.hostname
+            or url.username is not None
+            or url.password is not None
+            or url.path
+            or url.query
+            or url.fragment
+            or (port is not None and port != _HTTPS_PORT)
+            or len(key) < _MIN_WORKER_KEY_BYTES
+        ):
+            return None
+        return cls(origin, key)
+
+
 @final
 class Pairings:
     def __init__(self, clock: Callable[[], float], github: GitHubPairing | None) -> None:
         self.clock = clock
         self.github = github
+        self.worker = Worker.from_env()
         self.pending: dict[str, PendingPairing] = {}
 
     async def start(self, response: Response) -> PairingStart:
@@ -108,7 +142,7 @@ class Pairings:
     def sign(claims: str, key: bytes) -> str:
         return hmac.digest(key, claims.encode(), "sha256").hex()
 
-    async def session(self, authorization: Annotated[str | None, Header()] = None) -> Response:
+    def authenticate(self, authorization: str | None) -> int:
         if self.github is None:
             raise HTTPException(
                 status.HTTP_503_SERVICE_UNAVAILABLE, "Soldr access unavailable", _HEADERS
@@ -127,7 +161,25 @@ class Pairings:
             )
         ):
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid Soldr credential", _HEADERS)
+        return self.github.customer_id
+
+    async def session(self, authorization: Annotated[str | None, Header()] = None) -> Response:
+        self.authenticate(authorization)
         return Response(status_code=status.HTTP_204_NO_CONTENT, headers=_HEADERS)
+
+    async def discover_worker(
+        self, authorization: Annotated[str | None, Header()] = None
+    ) -> Response:
+        account = self.authenticate(authorization)
+        if self.worker is None:
+            return Response(status_code=status.HTTP_204_NO_CONTENT, headers=_HEADERS)
+        expires = int(self.clock()) + _WORKER_GRANT_SECONDS
+        claims = f"w1.{account}.{expires}.{secrets.token_urlsafe(32)}"
+        signature = self.sign(claims, self.worker.key)
+        return JSONResponse(
+            {"origin": self.worker.origin, "token": f"{claims}.{signature}"},
+            headers=_HEADERS,
+        )
 
     async def form(self) -> HTMLResponse:
         return HTMLResponse(
@@ -212,6 +264,7 @@ def install_pairing_routes(app: FastAPI, clock: Callable[[], float]) -> None:
     app.post("/api/v1/soldr/pairings", status_code=status.HTTP_201_CREATED)(pairings.start)
     app.post("/api/v1/soldr/pairings/poll")(pairings.poll)
     app.get("/api/v1/soldr/session")(pairings.session)
+    app.post("/api/v1/soldr/worker")(pairings.discover_worker)
     app.get("/soldr/pair")(pairings.form)
     app.post("/soldr/pair")(pairings.begin_github)
     app.get("/soldr/pair/github")(pairings.finish_github)

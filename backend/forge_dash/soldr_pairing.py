@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
     from fastapi import FastAPI
 
-_EXPIRES_IN = 600
+_EXPIRES_IN = 1800
 _POLL_INTERVAL = 5
 _MAX_PENDING = 1024
 _MAX_FORM_BYTES = 256
@@ -193,12 +193,10 @@ class Pairings:
             """<!doctype html>
 <html lang="en"><meta charset="utf-8"><title>Pair Soldr</title>
 <main><h1>Pair Soldr</h1>
-<p>Paste the one-time code from the terminal session that linked to this page.</p>
+<p>Run <code>soldr pair</code> in your terminal to get a code. It expires after 30 minutes.</p>
 <form method="post"><label for="code">Forge CI pairing code</label>
 <input id="code" name="user_code" required maxlength="11" autocomplete="off">
 <button>Continue with GitHub</button></form>
-<p>Did Soldr send you to GitHub?
-<a href="https://github.com/login/device">Enter your device code on GitHub</a>.</p>
 </main></html>""",
             headers=_HEADERS,
         )
@@ -262,8 +260,8 @@ class Pairings:
         pairing.account = account
         response = HTMLResponse(
             """<!doctype html>
-<html lang="en"><meta charset="utf-8"><title>Soldr paired</title>
-<main><h1>Soldr paired</h1><p>Return to your terminal.</p></main></html>""",
+<html lang="en"><meta charset="utf-8"><title>Registered · Forge CI</title>
+<main><h1>Registered</h1><p>You can return to your terminal. More coming soon.</p></main></html>""",
             headers=_HEADERS,
         )
         response.delete_cookie("__Host-soldr-pair", secure=True, httponly=True)

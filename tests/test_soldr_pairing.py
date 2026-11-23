@@ -38,6 +38,7 @@ def test_pairing_start_returns_distinct_public_and_private_codes(
         assert response.status_code == 201
         assert response.headers["cache-control"] == "no-store"
         pairing = Pairing.model_validate_json(response.content)
+        assert pairing.expires_in == 1800
         assert pairing.verification_uri == "https://forge-ci.com/soldr/pair"
         assert len(pairing.device_code) >= 43
         assert pairing.user_code not in pairing.device_code
@@ -53,6 +54,7 @@ def test_browser_has_a_pairing_code_form() -> None:
         response = client.get("/soldr/pair")
         assert response.status_code == 200
         assert 'name="user_code"' in response.text
+        assert "soldr pair" in response.text
         assert response.headers["cache-control"] == "no-store"
         assert "form-action 'self'" in response.headers["content-security-policy"]
 

@@ -16,7 +16,7 @@
         ><img src="/favicon.svg" width="32" height="32" alt="" /> Forge CI</a
       >
       <h1>Pair Soldr</h1>
-      <p>Connect this Soldr session to your GitHub account.</p>
+      <p>Run <code>soldr pair</code> in your terminal to get a code.</p>
       <form method="post" action="/soldr/pair">
         <label for="code">Forge CI pairing code</label>
         <input
@@ -31,17 +31,11 @@
           spellcheck="false"
           aria-describedby="code-help"
         />
-        <p id="code-help">
-          Paste the one-time code from the terminal session that opened or linked to this page.
-        </p>
+        <p id="code-help">Paste the code from Soldr. It expires after 30 minutes.</p>
         <button class="sign-in" type="submit">
           Continue with GitHub <span aria-hidden="true">↗</span>
         </button>
       </form>
-      <p class="pair-device">
-        Did Soldr send you to GitHub?
-        <a href="https://github.com/login/device">Enter your device code on GitHub</a>.
-      </p>
     </main>
     <script type="module" src="/src/splash.ts"></script>
   </body>

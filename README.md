@@ -60,7 +60,10 @@ no capabilities, 64 MB and 0.2 CPU. Remove it with `docker rm -f forge-metrics-a
 The signed-in dashboard shows live GitHub Actions job counts for the two E640s.
 Enable the dispatcher snapshot at `/run/forge/host-load.json` before installing
 the agent. The installer mounts the parent directory read-only when present,
-and observations older than 30 seconds appear as unavailable.
+and observations older than 30 seconds appear as unavailable. On NixOS
+runner hosts, install the optional Docker-independent observer with
+`deploy/install-runner-count.sh <ssh-target>`. The agent uses its fresh
+worker count while the dispatcher observation is unavailable.
 
 Adding a host: add a `HostInfo` to `backend/forge_dash/config.py` (order = colour
 order), add its token hash to the env var, run the installer.

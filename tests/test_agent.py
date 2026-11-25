@@ -7,6 +7,7 @@ import pytest
 from forge_metrics_agent import (
     Proc,
     count_cpus,
+    current_runner_jobs,
     is_physical,
     parse_cpu,
     parse_disk,
@@ -129,3 +130,14 @@ def test_runner_snapshots(tmp_path: Path) -> None:
     assert read_runner_jobs(tmp_path / "missing") == {}
     path.write_text('{"gh_jobs_running":true,"updated_at":100}', encoding="utf-8")
     assert read_runner_jobs(path) == {}
+
+
+def test_runner_jobs_fall_back_to_host_workers(tmp_path: Path) -> None:
+    dispatcher = tmp_path / "host-load.json"
+    workers = tmp_path / "runner-workers.json"
+    dispatcher.write_text('{"gh_jobs_running":7,"updated_at":100}', encoding="utf-8")
+    workers.write_text('{"gh_jobs_running":0,"updated_at":132}', encoding="utf-8")
+    assert current_runner_jobs(tmp_path, 133) == {"gh_jobs_running": 0, "gh_jobs_updated_at": 132}
+    assert current_runner_jobs(tmp_path, 163) == {}
+    dispatcher.write_text('{"gh_jobs_running":5,"updated_at":130}', encoding="utf-8")
+    assert current_runner_jobs(tmp_path, 133) == {"gh_jobs_running": 5, "gh_jobs_updated_at": 130}

@@ -11,6 +11,7 @@ export interface ChartSpec {
   readonly description: string;
   readonly value: (s: Sample) => number | null;
   readonly format: (v: number) => string;
+  readonly formatTicks?: (ticks: readonly number[]) => string[];
   /** Fixed upper bound (percentages); otherwise the axis fits the data from 0. */
   readonly fixedMax?: number;
 }
@@ -117,6 +118,9 @@ export class LiveChart {
     this.tooltip.hidden = true;
     this.plotEl.append(this.tooltip);
     card.append(this.plotEl);
+    this.plotEl.addEventListener("pointerleave", () => {
+      this.tooltip.hidden = true;
+    });
     this.resize = new ResizeObserver(() => {
       this.plot?.setSize({ width: this.width(), height: HEIGHT });
     });
@@ -130,6 +134,7 @@ export class LiveChart {
   /** Re-read colours (after a light/dark switch) and rebuild the plot. */
   retheme(): void {
     this.theme = readTheme(this.root, this.series);
+    this.tooltip.hidden = true;
     const data = this.plot?.data;
     this.plot?.destroy();
     this.plot = null;
@@ -184,7 +189,12 @@ export class LiveChart {
       },
       axes: [
         { ...axis },
-        { ...axis, size: 64, values: (_u, splits): string[] => splits.map((v) => fmt(v)) },
+        {
+          ...axis,
+          size: 64,
+          values: (_u, splits): string[] =>
+            this.spec.formatTicks?.(splits) ?? splits.map((v) => fmt(v)),
+        },
       ],
       series: [
         {},
@@ -307,6 +317,7 @@ export class LiveChart {
   destroy(): void {
     this.resize.disconnect();
     this.plot?.destroy();
+    this.plotEl.remove();
     this.card.remove();
   }
 }

@@ -12,7 +12,7 @@ import {
 import { LiveChart, type ChartSpec, type SeriesSpec } from "./charts";
 import { mountTabs } from "./dashboard-tabs";
 import { DeviceChart } from "./device-chart";
-import { duration, gib, pct, rate, ratio } from "./format";
+import { duration, gib, pct, rate, rateTicks, ratio } from "./format";
 import { mountGitOps } from "./git-ops";
 
 const KEEP_S = 2 * 60 * 60;
@@ -99,6 +99,7 @@ const CHARTS: readonly ChartSpec[] = [
     description: "Bytes in plus out per second on physical interfaces.",
     value: (s) => s.net_rx_bps + s.net_tx_bps,
     format: rate,
+    formatTicks: rateTicks,
   },
   {
     id: "disk",
@@ -106,6 +107,7 @@ const CHARTS: readonly ChartSpec[] = [
     description: "Bytes read plus written per second across whole disks.",
     value: (s) => s.disk_read_bps + s.disk_write_bps,
     format: rate,
+    formatTicks: rateTicks,
   },
 ];
 

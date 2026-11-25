@@ -1,6 +1,6 @@
 import type { DeviceField, HostInfo, Sample } from "./api";
 import { LiveChart, type ChartSpec } from "./charts";
-import { pct, rate, ratio } from "./format";
+import { pct, rate, rateTicks, ratio } from "./format";
 
 const metrics = {
   busy_pct: ["Device busy time", "Share of the interval the kernel accounted as doing I/O.", pct],
@@ -74,6 +74,7 @@ export class DeviceChart {
         description,
         format,
         value: () => null,
+        ...(field.endsWith("_bps") ? { formatTicks: rateTicks } : {}),
         ...(field === "busy_pct" ? { fixedMax: 100 } : {}),
       };
       this.element.append(this.plot);

@@ -161,22 +161,29 @@ export function mountGitOps(root: HTMLElement): void {
     visible += 60;
     renderJobs();
   });
-  section.append(
-    node("h2", "Git Ops"),
-    status,
-    cards,
-    node("h3", "Repositories"),
+  const repositoryDetails = node("details");
+  repositoryDetails.className = "dashboard-disclosure";
+  repositoryDetails.append(
+    node("summary", "Repository metrics"),
     node(
       "p",
       "Recent history samples up to 12 completed workflow runs per repository in the last 24 hours.",
     ),
     repositories,
+  );
+  const runnerDetails = node("details");
+  runnerDetails.className = "dashboard-disclosure";
+  runnerDetails.append(node("summary", "Runner event history"), events);
+  section.append(
+    node("h2", "Git Ops"),
+    status,
+    cards,
+    repositoryDetails,
+    runnerDetails,
     node("h3", "Job activity"),
     controls,
     activity,
     showMore,
-    node("h3", "Runner events"),
-    events,
   );
   root.append(section);
 

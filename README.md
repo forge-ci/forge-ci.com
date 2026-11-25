@@ -89,9 +89,10 @@ The discovery API returns no worker until both settings are valid.
 
 ## Git Ops
 
-The signed-in dashboard opens with repository activity, per-job workflow and step
-details, execution placement, and a sampled 24-hour outcome and duration
-summary. The Dell host counts and utilization charts are under Runner fleet.
+The signed-in dashboard opens with Runner fleet, including Dell host counts and
+utilization charts. Git Ops follows with repository activity, per-job workflow
+and step details, execution placement, and a sampled 24-hour outcome and
+duration summary.
 
 `deploy/install-git-ops.sh actions root@signal-host` uses the existing
 `forge-pool-watch` GitHub App on the admin droplet. It requests Actions read

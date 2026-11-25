@@ -1,3 +1,4 @@
+import hashlib
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -152,11 +153,47 @@ def test_splash_and_dashboard_require_browser_login(
     issued_at = 1_800_000_000
     now = issued_at
     week = 7 * 24 * 60 * 60
-    app, _ = create_app(Settings(static_dir=tmp_path), clock=lambda: now)
+    tokens = {
+        "admin-droplet": hashlib.sha256(b"droplet-fixture").hexdigest(),
+        "dell-jw22zc3": hashlib.sha256(b"runner-fixture").hexdigest(),
+    }
+    app, _ = create_app(Settings(static_dir=tmp_path, token_hashes=tokens), clock=lambda: now)
     with TestClient(app, base_url="https://forge-ci.com", follow_redirects=False) as client:
         assert client.get("/").text == "Sign in with GitHub"
         assert client.get("/dashboard").headers["location"] == "/"
         assert client.get("/index.html").status_code == 404
+        assert client.get("/api/git-ops").status_code == 401
+        snapshot: dict[str, object] = {"observed_at": now, "repositories": []}
+        runner_headers = {"Authorization": "Bearer runner-fixture"}
+        droplet_headers = {"Authorization": "Bearer droplet-fixture"}
+        assert (
+            client.post("/api/git-ops/ingest", json=snapshot, headers=runner_headers).status_code
+            == 403
+        )
+        assert (
+            client.post("/api/git-ops/ingest", json=snapshot, headers=droplet_headers).status_code
+            == 204
+        )
+        event = {
+            "id": "one",
+            "runner": "dyn-forge-ci-1",
+            "job": "Build",
+            "phase": "started",
+            "observed_at": now,
+        }
+        assert (
+            client.post(
+                "/api/git-ops/runner-event", json=event, headers=droplet_headers
+            ).status_code
+            == 403
+        )
+        for _ in range(2):
+            assert (
+                client.post(
+                    "/api/git-ops/runner-event", json=event, headers=runner_headers
+                ).status_code
+                == 204
+            )
         login = client.get("/login")
         assert login.status_code == 303
         query = parse_qs(urlparse(login.headers["location"]).query)
@@ -174,6 +211,14 @@ def test_splash_and_dashboard_require_browser_login(
         assert "HttpOnly" in session_cookie
         assert f"Max-Age={week}" in session_cookie
         assert client.get("/dashboard").text == "Fleet utilization"
+        feed = client.get("/api/git-ops")
+        assert feed.headers["cache-control"] == "private, no-store"
+        assert feed.json() == {
+            "actions": snapshot,
+            "runner_events": [
+                {**event, "result": None, "host": "dell-jw22zc3"},
+            ],
+        }
         assert client.get("/soldr/pair/github", params=params).status_code == 400
         assert client.post("/logout").headers["location"] == "/"
         assert client.get("/dashboard").headers["location"] == "/"

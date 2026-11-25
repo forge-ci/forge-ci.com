@@ -10,6 +10,7 @@ import {
 } from "./api";
 import { LiveChart, type ChartSpec, type SeriesSpec } from "./charts";
 import { duration, gib, pct, rate, ratio } from "./format";
+import { mountGitOps } from "./git-ops";
 
 const KEEP_S = 2 * 60 * 60;
 const ONLINE_AFTER_S = 20;
@@ -127,7 +128,10 @@ function seriesSpecs(): SeriesSpec[] {
 function buildShell(): void {
   const header = el("header", "top");
   const titles = el("div");
-  titles.append(el("h1", undefined, "forge-ci"), el("p", "subtitle", "Fleet utilization, live"));
+  titles.append(
+    el("h1", undefined, "forge-ci"),
+    el("p", "subtitle", "GitHub Actions and runner fleet"),
+  );
   const actions = el("nav", "dashboard-actions");
   actions.setAttribute("aria-label", "Account");
   const connect = el("a", undefined, "Connect Soldr");
@@ -184,7 +188,20 @@ function buildShell(): void {
   source.rel = "noopener";
   footer.append(source);
 
-  root.replaceChildren(header, runnerSummary, hostGrid, controls, chartGrid, details, footer);
+  const gitOps = el("div");
+  const fleetHeading = el("h2", undefined, "Runner fleet");
+  root.replaceChildren(
+    header,
+    gitOps,
+    fleetHeading,
+    runnerSummary,
+    hostGrid,
+    controls,
+    chartGrid,
+    details,
+    footer,
+  );
+  mountGitOps(gitOps);
 }
 
 function buildCharts(): void {

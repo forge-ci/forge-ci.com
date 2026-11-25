@@ -1,10 +1,19 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
+from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlsplit
 
+import forge_runner_events
 from forge_git_ops import collect_repo, placement
 from forge_runner_events import runner_event
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import pytest
 
 
 def test_active_and_completed_job_details_share_a_repository() -> None:
@@ -65,3 +74,15 @@ def test_runner_journal_emits_lifecycle_metadata_only() -> None:
     }
     raw["CONTAINER_NAME"] = "forge-metrics-agent"
     assert runner_event(json.dumps(raw)) is None
+
+
+def test_idle_runner_journal_is_a_success(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def empty_journal(args: list[str]) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args, 1, stdout="", stderr="")
+
+    monkeypatch.setattr(forge_runner_events, "journal_lines", empty_journal)
+    monkeypatch.setattr(
+        sys, "argv", ["forge_runner_events.py", "--state", str(tmp_path / "cursor")]
+    )
+    forge_runner_events.main()
+    assert not (tmp_path / "cursor").exists()

@@ -190,6 +190,16 @@ def read_runner_jobs(path: Path) -> dict[str, float | int]:
     return {}
 
 
+def current_runner_jobs(directory: Path, now: float) -> dict[str, float | int]:
+    """Prefer the dispatcher and fall back to the host process observer if it stalls."""
+    for name in ("host-load.json", "runner-workers.json"):
+        jobs = read_runner_jobs(directory / name)
+        observed = jobs.get("gh_jobs_updated_at")
+        if observed is not None and 0 <= now - observed <= 30:  # noqa: PLR2004
+            return jobs
+    return {}
+
+
 def post(url: str, token: str, values: dict[str, float | int]) -> int:
     parts = urllib.parse.urlsplit(url)
     if parts.scheme != "https" or not parts.hostname:
@@ -238,7 +248,7 @@ def main() -> int:
     while True:
         time.sleep(backoff)
         values, prev = proc.sample(prev)
-        values.update(read_runner_jobs(Path("/run/forge/host-load.json")))
+        values.update(current_runner_jobs(Path("/run/forge"), time.time()))
         try:
             code = post(url, token, values)
         except (OSError, http.client.HTTPException) as exc:

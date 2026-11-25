@@ -181,3 +181,17 @@ full avg10=20.00 avg60=9.00 avg300=0.00 total=330
             }
         },
     }
+
+
+def test_runner_slots_survive_short_dispatcher_stalls(tmp_path: Path) -> None:
+    dispatcher = tmp_path / "host-load.json"
+    dispatcher.write_text('{"gh_jobs_running":6,"updated_at":100,"cap":10}', encoding="utf-8")
+    workers = tmp_path / "runner-workers.json"
+    workers.write_text('{"gh_jobs_running":3,"updated_at":145}', encoding="utf-8")
+    assert current_runner_jobs(tmp_path, 150) == {
+        "gh_runner_slots": 10,
+        "gh_runner_slots_updated_at": 100,
+        "gh_jobs_running": 3,
+        "gh_jobs_updated_at": 145,
+    }
+    assert current_runner_jobs(tmp_path, 401) == {}

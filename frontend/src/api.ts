@@ -64,6 +64,7 @@ function diagnostics(value: unknown): Diagnostics | undefined {
 
 export type Sample = Readonly<Record<MetricName | "ts", number>> & {
   readonly diagnostics?: Diagnostics;
+  readonly runnerCapacity?: { readonly slots: number; readonly observedAt: number };
   readonly runnerJobs?: { readonly count: number; readonly observedAt: number };
 };
 
@@ -126,7 +127,22 @@ export function parseSample(value: unknown): Sample {
   const count = r["gh_jobs_running"];
   const observedAt = r["gh_jobs_updated_at"];
   const diag = diagnostics(r["diagnostics"]);
-  const sample = diag === undefined ? (out as Sample) : { ...(out as Sample), diagnostics: diag };
+  const slots = r["gh_runner_slots"];
+  const slotsAt = r["gh_runner_slots_updated_at"];
+  const capacity =
+    typeof slots === "number" &&
+    Number.isSafeInteger(slots) &&
+    slots >= 0 &&
+    typeof slotsAt === "number" &&
+    Number.isFinite(slotsAt) &&
+    slotsAt > 0
+      ? { runnerCapacity: { slots, observedAt: slotsAt } }
+      : {};
+  const sample: Sample = {
+    ...(out as Sample),
+    ...(diag === undefined ? {} : { diagnostics: diag }),
+    ...capacity,
+  };
   if (
     typeof count === "number" &&
     Number.isSafeInteger(count) &&

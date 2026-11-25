@@ -37,6 +37,9 @@ VIRTUAL_IFACE = re.compile(r"^(lo|veth|docker|br-|virbr|cni|flannel|vxlan|tap|tu
 # Whole disks only: partitions, device-mapper, zram and loop would double count.
 WHOLE_DISK = re.compile(r"^(sd[a-z]+|vd[a-z]+|xvd[a-z]+|hd[a-z]+|nvme\d+n\d+)$")
 MAX_BACKOFF_S = 60.0
+RUNNER_COUNT_MAX_AGE_S = 30
+RUNNER_CAP_MAX_AGE_S = 300
+MAX_RUNNER_SLOTS = 4096
 
 
 @dataclass(frozen=True)
@@ -265,18 +268,33 @@ def read_runner_jobs(path: Path) -> dict[str, float | int]:
         and 0 < observed <= time.time()
         and math.isfinite(observed)
     ):
-        return {"gh_jobs_running": count, "gh_jobs_updated_at": observed}
+        values: dict[str, float | int] = {"gh_jobs_running": count, "gh_jobs_updated_at": observed}
+        cap = fields.get("cap")
+        if type(cap) is int and 0 <= cap <= MAX_RUNNER_SLOTS:
+            values.update(gh_runner_slots=cap, gh_runner_slots_updated_at=observed)
+        return values
     return {}
 
 
 def current_runner_jobs(directory: Path, now: float) -> dict[str, float | int]:
     """Prefer the dispatcher and fall back to the host process observer if it stalls."""
-    for name in ("host-load.json", "runner-workers.json"):
-        jobs = read_runner_jobs(directory / name)
-        observed = jobs.get("gh_jobs_updated_at")
-        if observed is not None and 0 <= now - observed <= 30:  # noqa: PLR2004
-            return jobs
-    return {}
+    dispatch = read_runner_jobs(directory / "host-load.json")
+    values: dict[str, float | int] = {}
+    cap = dispatch.get("gh_runner_slots")
+    cap_at = dispatch.get("gh_runner_slots_updated_at")
+    if cap is not None and cap_at is not None and 0 <= now - cap_at <= RUNNER_CAP_MAX_AGE_S:
+        values.update(gh_runner_slots=cap, gh_runner_slots_updated_at=cap_at)
+    for source in (dispatch, read_runner_jobs(directory / "runner-workers.json")):
+        count = source.get("gh_jobs_running")
+        observed = source.get("gh_jobs_updated_at")
+        if (
+            count is not None
+            and observed is not None
+            and 0 <= now - observed <= RUNNER_COUNT_MAX_AGE_S
+        ):
+            values.update(gh_jobs_running=count, gh_jobs_updated_at=observed)
+            break
+    return values
 
 
 def post(url: str, token: str, values: dict[str, object]) -> int:

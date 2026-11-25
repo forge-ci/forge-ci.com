@@ -126,3 +126,9 @@ A missing latency sample means there were no completed reads or writes
 to measure, or the counter reset. Partitions, loop devices, device-mapper
 layers, and zram are excluded. Samples from older agents have gaps in
 the new series.
+
+The dashboard keeps Utilization, CPU timing, Pressure, Block devices, Git Ops,
+and Hosts in sticky tabs. Switching views keeps their existing data and
+selections. Runner utilization is shown as running jobs over the configured
+dispatcher cap. The denominator can remain visible through a short dispatcher
+stall while the worker observer supplies the running count.

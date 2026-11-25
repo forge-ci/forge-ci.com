@@ -24,8 +24,9 @@ const WINDOWS = [
 const CHARTS: readonly ChartSpec[] = [
   {
     id: "cpu",
-    title: "CPU utilization",
-    description: "Share of all cores busy (user, system, irq, steal), averaged over each sample.",
+    title: "CPU busy time",
+    description:
+      "Percent of aggregate logical CPU time between samples spent in user, kernel, interrupt, or steal states. Idle and I/O-wait time are excluded.",
     value: (s) => s.cpu_pct,
     format: pct,
     fixedMax: 100,
@@ -40,8 +41,9 @@ const CHARTS: readonly ChartSpec[] = [
   },
   {
     id: "load",
-    title: "Load per core",
-    description: "1-minute load average divided by core count. Above 1.0 means work is queuing.",
+    title: "Linux load per logical CPU",
+    description:
+      "1-minute average of runnable and uninterruptible tasks, divided by logical CPUs. 1.0 is one task per CPU on average. I/O waits can raise load while CPUs are idle.",
     value: (s) => s.load1 / s.cpu_count,
     format: ratio,
   },
@@ -192,17 +194,13 @@ function buildShell(): void {
   const fleetHeading = el("h2", undefined, "Runner fleet");
   const utilization = el("details", "dashboard-disclosure");
   utilization.open = true;
-  utilization.append(el("summary", undefined, "Fleet utilization charts"), controls, chartGrid);
-  root.replaceChildren(
-    header,
-    utilization,
-    gitOps,
-    fleetHeading,
+  utilization.append(
+    el("summary", undefined, "Fleet utilization charts"),
     runnerSummary,
-    hostGrid,
-    details,
-    footer,
+    controls,
+    chartGrid,
   );
+  root.replaceChildren(header, utilization, gitOps, fleetHeading, hostGrid, details, footer);
   mountGitOps(gitOps);
 }
 
@@ -340,11 +338,18 @@ function renderRunnerJobs(now: number): void {
         ? String(total)
         : `${String(total)} (partial, ${String(reported.length)} of ${String(runnerHosts.length)} hosts)`;
   const tiles = el("div", "tiles");
-  for (const [index, host] of runnerHosts.entries()) {
-    tiles.append(tile(host, String(counts[index] ?? "Unavailable")));
+  for (const host of hosts) {
+    const index = runnerHosts.indexOf(host.id);
+    const count = index < 0 ? "Not monitored" : String(counts[index] ?? "Unavailable");
+    const sample = samples.get(host.id)?.at(-1);
+    const detail =
+      sample !== undefined && now - sample.ts <= ONLINE_AFTER_S
+        ? `CPU ${pct(sample.cpu_pct)} · Load ${ratio(sample.load1 / sample.cpu_count)} per CPU`
+        : undefined;
+    tiles.append(tile(host.label, count, detail));
   }
   runnerSummary.replaceChildren(
-    el("h2", undefined, `GitHub Actions jobs running: ${label}`),
+    el("h2", undefined, `GitHub Actions jobs running on Dell runners: ${label}`),
     tiles,
   );
 }

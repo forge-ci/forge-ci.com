@@ -191,15 +191,16 @@ function buildShell(): void {
   const gitOps = el("div");
   const fleetHeading = el("h2", undefined, "Runner fleet");
   const utilization = el("details", "dashboard-disclosure");
+  utilization.open = true;
   utilization.append(el("summary", undefined, "Fleet utilization charts"), controls, chartGrid);
   root.replaceChildren(
     header,
+    utilization,
+    gitOps,
     fleetHeading,
     runnerSummary,
     hostGrid,
-    utilization,
     details,
-    gitOps,
     footer,
   );
   mountGitOps(gitOps);

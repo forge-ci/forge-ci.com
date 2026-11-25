@@ -132,3 +132,12 @@ and Hosts in sticky tabs. Switching views keeps their existing data and
 selections. Runner utilization is shown as running jobs over the configured
 dispatcher cap. The denominator can remain visible through a short dispatcher
 stall while the worker observer supplies the running count.
+## Build attestation statistics
+
+The signed-in dashboard's **Attestations** tab reads the last 24 hours of
+completed remote Soldr builds. Set `FORGE_ATTESTATION_STATS_ORIGIN` to the HTTPS
+origin of a separately deployed `soldr attestation serve` process and set
+`FORGE_ATTESTATION_STATS_READ_TOKEN` to that process's read token. The dashboard
+keeps the token server-side. An empty result means the service has received no
+build completions in the window. Missing configuration or an unreachable
+service shows an unavailable state.

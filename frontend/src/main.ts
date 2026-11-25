@@ -62,6 +62,15 @@ const CHARTS: readonly ChartSpec[] = [
 
 // ---------------------------------------------------------------- state
 
+const runnerHosts = ["dell-jw22zc3", "dell-fsx3mn2"];
+const runnerSamples = new Map<string, Sample>();
+
+function updateRunnerSample(host: string, sample: Sample): void {
+  if (runnerHosts.includes(host) && sample.ts > (runnerSamples.get(host)?.ts ?? 0)) {
+    runnerSamples.set(host, sample);
+  }
+}
+
 const samples = new Map<string, Sample[]>();
 let hosts: HostInfo[] = [];
 let windowSeconds: number = WINDOWS[1].seconds;
@@ -106,6 +115,7 @@ function requireElement(id: string): HTMLElement {
 
 const root = requireElement("app");
 const connection = el("span", "pill");
+const runnerSummary = el("section", "host-card");
 const hostGrid = el("section", "hosts");
 const chartGrid = el("section", "charts");
 const tableBody = el("tbody");
@@ -174,7 +184,7 @@ function buildShell(): void {
   source.rel = "noopener";
   footer.append(source);
 
-  root.replaceChildren(header, hostGrid, controls, chartGrid, details, footer);
+  root.replaceChildren(header, runnerSummary, hostGrid, controls, chartGrid, details, footer);
 }
 
 function buildCharts(): void {
@@ -296,10 +306,35 @@ function renderConnection(): void {
   );
 }
 
+function renderRunnerJobs(now: number): void {
+  const counts = runnerHosts.map((host) => {
+    const jobs = runnerSamples.get(host)?.runnerJobs;
+    const age = now - (jobs?.observedAt ?? 0);
+    return jobs !== undefined && age >= 0 && age <= 30 ? jobs.count : null;
+  });
+  const reported = counts.filter((count) => count !== null);
+  const total = reported.reduce((sum, count) => sum + count, 0);
+  const label =
+    reported.length === 0
+      ? "Unavailable"
+      : reported.length === runnerHosts.length
+        ? String(total)
+        : `${String(total)} (partial, ${String(reported.length)} of ${String(runnerHosts.length)} hosts)`;
+  const tiles = el("div", "tiles");
+  for (const [index, host] of runnerHosts.entries()) {
+    tiles.append(tile(host, String(counts[index] ?? "Unavailable")));
+  }
+  runnerSummary.replaceChildren(
+    el("h2", undefined, `GitHub Actions jobs running: ${label}`),
+    tiles,
+  );
+}
+
 function redraw(): void {
   const now = serverNow();
   const series = hosts.map((h) => samples.get(h.id) ?? []);
   for (const chart of charts) chart.update(series, now - windowSeconds, now);
+  renderRunnerJobs(now);
   renderHosts(now);
   renderTable(now);
   renderConnection();
@@ -322,7 +357,7 @@ function connect(): void {
     connected = true;
     renderConnection();
     // Fill whatever arrived while the stream was down.
-    if (wasDown) void loadHistory().then(redraw, reportError);
+    if (wasDown) void Promise.all([loadHistory(), refreshRunnerJobs()]).then(redraw, reportError);
   });
   source.addEventListener("error", () => {
     connected = false;
@@ -331,6 +366,7 @@ function connect(): void {
   source.addEventListener("sample", (event: MessageEvent<string>) => {
     try {
       const { host, sample } = parseSampleEvent(event.data);
+      updateRunnerSample(host, sample);
       addSample(host, sample);
     } catch (error: unknown) {
       reportError(error);
@@ -348,9 +384,18 @@ function reportError(error: unknown): void {
   console.error("forge-ci dashboard:", error);
 }
 
+async function refreshRunnerJobs(): Promise<void> {
+  for (const { host, latest } of await fetchHosts()) {
+    if (latest !== null) updateRunnerSample(host.id, latest);
+  }
+}
+
 async function main(): Promise<void> {
   const statuses: HostStatus[] = await fetchHosts();
   hosts = statuses.map((s) => s.host);
+  for (const { host, latest } of statuses) {
+    if (latest !== null) updateRunnerSample(host.id, latest);
+  }
   buildShell();
   buildCharts();
   await loadHistory();

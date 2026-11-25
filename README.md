@@ -57,6 +57,11 @@ deploy/install-agent.sh root@159.89.232.188 https://forge-ci-com.onrender.com/ap
 The container (`forge-metrics-agent`) uses `--network host`, a read-only root,
 no capabilities, 64 MB and 0.2 CPU. Remove it with `docker rm -f forge-metrics-agent`.
 
+The signed-in dashboard shows live GitHub Actions job counts for the two E640s.
+Enable the dispatcher snapshot at `/run/forge/host-load.json` before installing
+the agent. The installer mounts the parent directory read-only when present,
+and observations older than 30 seconds appear as unavailable.
+
 Adding a host: add a `HostInfo` to `backend/forge_dash/config.py` (order = colour
 order), add its token hash to the env var, run the installer.
 

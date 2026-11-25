@@ -40,13 +40,17 @@ token=$(cat)
   if [ \"\$(docker info --format '{{.LoggingDriver}}')\" = json-file ]; then
     logopts='--log-opt max-size=1m --log-opt max-file=2'
   fi
+  runner_mount=''
+  if [ -d /run/forge ]; then
+    runner_mount='--mount type=bind,src=/run/forge,dst=/run/forge,readonly'
+  fi
   # shellcheck disable=SC2086
   docker run -d --name forge-metrics-agent \
     --restart unless-stopped \
     --network host \
     --read-only --cap-drop ALL --security-opt no-new-privileges \
     --memory 64m --cpus 0.2 --pids-limit 32 \
-    \$logopts \
+    \$logopts \$runner_mount \
     -v /var/lib/forge-metrics:/etc/forge-metrics:ro \
     -e FORGE_INGEST_URL=$url \
     -e FORGE_INGEST_TOKEN_FILE=/etc/forge-metrics/token \

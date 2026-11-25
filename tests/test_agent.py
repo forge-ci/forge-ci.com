@@ -13,6 +13,7 @@ from forge_metrics_agent import (
     parse_meminfo,
     parse_net,
     rate,
+    read_runner_jobs,
 )
 
 if TYPE_CHECKING:
@@ -118,3 +119,13 @@ def test_sample_end_to_end(tmp_path: Path) -> None:
     assert values["swap_used_bytes"] == 50 * 1024
     assert values["uptime_s"] == 3600.25
     assert values["net_rx_bps"] == 0.0  # counters unchanged between reads
+
+
+def test_runner_snapshots(tmp_path: Path) -> None:
+    for count in (2, 3, 0):
+        path = tmp_path / str(count)
+        path.write_text(f'{{"gh_jobs_running":{count},"updated_at":100}}', encoding="utf-8")
+        assert read_runner_jobs(path) == {"gh_jobs_running": count, "gh_jobs_updated_at": 100}
+    assert read_runner_jobs(tmp_path / "missing") == {}
+    path.write_text('{"gh_jobs_running":true,"updated_at":100}', encoding="utf-8")
+    assert read_runner_jobs(path) == {}

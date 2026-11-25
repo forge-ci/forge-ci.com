@@ -182,3 +182,23 @@ def test_e640_inventory_tracks_both_hosts_independently(clock: Clock) -> None:
         assert hosts[first].latest is not None
         assert not hosts[first].online
         assert hosts[second].online
+
+
+def test_latest_runner_jobs_preserve_observation_timestamp(
+    client: TestClient, clock: Clock
+) -> None:
+    assert post(client, TOKEN, sample()) == 204
+    legacy = host_map(client)["dell-jw22zc3"].latest
+    assert legacy is not None
+    assert legacy.gh_jobs_running is None
+    clock.now += 5
+    for count in (2, 0):
+        observed = clock.now - 3
+        payload = {**sample(), "gh_jobs_running": count, "gh_jobs_updated_at": observed}
+        assert post(client, TOKEN, payload) == 204
+        latest = host_map(client)["dell-jw22zc3"].latest
+        assert latest is not None
+        assert latest.gh_jobs_running == count
+        assert latest.gh_jobs_updated_at == observed
+        assert latest.ts == clock.now
+        clock.now += 5

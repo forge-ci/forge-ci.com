@@ -19,7 +19,9 @@ export const METRIC_FIELDS = [
 ] as const;
 
 export type MetricName = (typeof METRIC_FIELDS)[number];
-export type Sample = Readonly<Record<MetricName | "ts", number>>;
+export type Sample = Readonly<Record<MetricName | "ts", number>> & {
+  readonly runnerJobs?: { readonly count: number; readonly observedAt: number };
+};
 
 export interface HostInfo {
   readonly id: string;
@@ -77,7 +79,20 @@ export function parseSample(value: unknown): Sample {
   const r = record(value, "sample");
   const out: Partial<Record<MetricName | "ts", number>> = { ts: num(r["ts"], "sample.ts") };
   for (const field of METRIC_FIELDS) out[field] = num(r[field], `sample.${field}`);
-  return out as Sample;
+  const count = r["gh_jobs_running"];
+  const observedAt = r["gh_jobs_updated_at"];
+  const sample = out as Sample;
+  if (
+    typeof count === "number" &&
+    Number.isSafeInteger(count) &&
+    count >= 0 &&
+    typeof observedAt === "number" &&
+    Number.isFinite(observedAt) &&
+    observedAt > 0
+  ) {
+    return { ...sample, runnerJobs: { count, observedAt } };
+  }
+  return sample;
 }
 
 function parseHostInfo(value: unknown): HostInfo {

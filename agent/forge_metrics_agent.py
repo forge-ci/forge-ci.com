@@ -2,7 +2,7 @@
 """forge-metrics-agent: push host utilization to forge-ci.com every few seconds.
 
 Standard library only, so it runs on a bare ``python:3.12-alpine`` container.
-It only reads ``/proc``. Run the container with ``--network host`` so
+It reads ``/proc`` and an optional runner snapshot. Run the container with ``--network host`` so
 ``/proc/net/dev`` shows the host's interfaces; ``/proc/stat``, ``meminfo``,
 ``loadavg``, ``diskstats`` and ``uptime`` are host-wide even without it.
 
@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import math
 import os
 import re
 import sys
@@ -25,7 +26,7 @@ import time
 import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
-from typing import final
+from typing import cast, final
 
 SECTOR_BYTES = 512
 # Virtual interfaces carry traffic that is already counted on a physical one.
@@ -166,6 +167,29 @@ class Proc:
         return values, cur
 
 
+def read_runner_jobs(path: Path) -> dict[str, float | int]:
+    """Read the dispatcher's last job observation, if available."""
+    try:
+        snapshot = cast("object", json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(snapshot, dict):
+        return {}
+    fields = cast("dict[str, object]", snapshot)
+    count = fields.get("gh_jobs_running")
+    observed = fields.get("updated_at")
+    if (
+        type(count) is int
+        and 0 <= count <= 2**53 - 1
+        and type(observed) in {int, float}
+        and isinstance(observed, int | float)
+        and 0 < observed <= time.time()
+        and math.isfinite(observed)
+    ):
+        return {"gh_jobs_running": count, "gh_jobs_updated_at": observed}
+    return {}
+
+
 def post(url: str, token: str, values: dict[str, float | int]) -> int:
     parts = urllib.parse.urlsplit(url)
     if parts.scheme != "https" or not parts.hostname:
@@ -214,6 +238,7 @@ def main() -> int:
     while True:
         time.sleep(backoff)
         values, prev = proc.sample(prev)
+        values.update(read_runner_jobs(Path("/run/forge/host-load.json")))
         try:
             code = post(url, token, values)
         except (OSError, http.client.HTTPException) as exc:

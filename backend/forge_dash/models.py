@@ -47,6 +47,8 @@ class IngestSample(BaseModel):
     disk_read_bps: float = Field(ge=0, le=_MAX_RATE)
     disk_write_bps: float = Field(ge=0, le=_MAX_RATE)
     uptime_s: float = Field(ge=0, le=1e10)
+    gh_jobs_running: int | None = Field(default=None, strict=True, ge=0, le=2**53 - 1)
+    gh_jobs_updated_at: float | None = Field(default=None, strict=True, gt=0, allow_inf_nan=False)
 
 
 class Sample(IngestSample):

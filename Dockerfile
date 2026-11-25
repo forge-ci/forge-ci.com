@@ -45,6 +45,8 @@ ENV PATH=/app/.venv/bin:$PATH \
     PORT=10000 \
     FORGE_STATIC_DIR=/app/frontend/dist
 USER app
+# Import the app with production dependencies before publishing the image.
+RUN PYTHONPATH=backend python -c 'from forge_dash.app import app_factory; app_factory()'
 EXPOSE 10000
 # One worker on purpose: the sample store and the live fan-out are in-process.
 CMD ["sh", "-c", "exec uvicorn forge_dash.app:app_factory --factory --app-dir backend --host 0.0.0.0 --port \"$PORT\" --proxy-headers --forwarded-allow-ips='*' --no-server-header"]

@@ -174,16 +174,16 @@ export function mountGitOps(root: HTMLElement): void {
   const runnerDetails = node("details");
   runnerDetails.className = "dashboard-disclosure";
   runnerDetails.append(node("summary", "Runner event history"), events);
+  const jobDetails = node("details");
+  jobDetails.className = "dashboard-disclosure";
+  jobDetails.append(node("summary", "Job activity"), controls, activity, showMore);
   section.append(
     node("h2", "Git Ops"),
     status,
     cards,
     repositoryDetails,
     runnerDetails,
-    node("h3", "Job activity"),
-    controls,
-    activity,
-    showMore,
+    jobDetails,
   );
   root.append(section);
 

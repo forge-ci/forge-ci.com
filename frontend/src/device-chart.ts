@@ -76,6 +76,7 @@ export class DeviceChart {
         value: () => null,
         ...(field === "busy_pct" ? { fixedMax: 100 } : {}),
       };
+      this.element.append(this.plot);
       this.chart = new LiveChart(this.root, this.plot, spec, series);
     }
     this.chart?.updateSeries(

@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
+from forge_dash.attestation_stats import install_attestation_stats
 from forge_dash.config import HOSTS, Settings
 from forge_dash.git_ops import (
     MAX_SNAPSHOT_BYTES,
@@ -259,6 +260,7 @@ def create_app(
     browser = install_pairing_routes(app, clock, static_dir)
 
     _install_git_ops(app, dash, browser)
+    install_attestation_stats(app, browser)
     if static_dir is not None:
 
         @app.get("/", response_model=None)

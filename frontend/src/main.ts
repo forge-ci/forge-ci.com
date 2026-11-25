@@ -9,6 +9,7 @@ import {
   type HostStatus,
   type Sample,
 } from "./api";
+import { mountAttestationStats } from "./attestation-stats";
 import { LiveChart, type ChartSpec, type SeriesSpec } from "./charts";
 import { mountTabs } from "./dashboard-tabs";
 import { DeviceChart } from "./device-chart";
@@ -248,6 +249,7 @@ function buildShell(): void {
   const devices = el("div");
   devices.append(deviceChart.element);
   const fleet = el("div");
+  const attestations = el("div");
   fleet.append(el("h2", undefined, "Runner fleet"), hostGrid, details);
   const tabs = [
     { id: "utilization", label: "Utilization", panel: utilization, timeWindow: true },
@@ -255,6 +257,7 @@ function buildShell(): void {
     { id: "pressure", label: "Pressure", panel: pressureGrid, timeWindow: true },
     { id: "devices", label: "Block devices", panel: devices, timeWindow: true },
     { id: "git-ops", label: "Git Ops", panel: gitOps },
+    { id: "attestations", label: "Attestations", panel: attestations },
     { id: "hosts", label: "Hosts", panel: fleet },
   ];
   root.replaceChildren(
@@ -265,6 +268,7 @@ function buildShell(): void {
     footer,
   );
   mountGitOps(gitOps);
+  mountAttestationStats(attestations);
 }
 
 function buildCharts(): void {

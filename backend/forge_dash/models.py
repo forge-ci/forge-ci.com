@@ -72,6 +72,10 @@ class IngestSample(BaseModel):
     disk_write_bps: float = Field(ge=0, le=_MAX_RATE)
     uptime_s: float = Field(ge=0, le=1e10)
     diagnostics: Diagnostics | None = None
+    gh_runner_slots: int | None = Field(default=None, strict=True, ge=0, le=4096)
+    gh_runner_slots_updated_at: float | None = Field(
+        default=None, strict=True, gt=0, allow_inf_nan=False
+    )
     gh_jobs_running: int | None = Field(default=None, strict=True, ge=0, le=2**53 - 1)
     gh_jobs_updated_at: float | None = Field(default=None, strict=True, gt=0, allow_inf_nan=False)
 

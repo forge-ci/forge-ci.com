@@ -10,12 +10,14 @@ import {
   type Sample,
 } from "./api";
 import { LiveChart, type ChartSpec, type SeriesSpec } from "./charts";
+import { mountTabs } from "./dashboard-tabs";
 import { DeviceChart } from "./device-chart";
 import { duration, gib, pct, rate, ratio } from "./format";
 import { mountGitOps } from "./git-ops";
 
 const KEEP_S = 2 * 60 * 60;
 const ONLINE_AFTER_S = 20;
+const CAPACITY_AFTER_S = 5 * 60;
 const WINDOWS = [
   { seconds: 5 * 60, label: "5 min" },
   { seconds: 15 * 60, label: "15 min" },
@@ -166,6 +168,8 @@ const connection = el("span", "pill");
 const runnerSummary = el("section", "host-card");
 const hostGrid = el("section", "hosts");
 const chartGrid = el("section", "charts");
+const cpuGrid = el("section", "charts");
+const pressureGrid = el("section", "charts");
 const tableBody = el("tbody");
 
 function seriesSpecs(): SeriesSpec[] {
@@ -236,18 +240,28 @@ function buildShell(): void {
   footer.append(source);
 
   const gitOps = el("div");
-  const fleetHeading = el("h2", undefined, "Runner fleet");
-  const utilization = el("details", "dashboard-disclosure");
-  utilization.open = true;
-  utilization.append(
-    el("summary", undefined, "Fleet utilization charts"),
-    runnerSummary,
-    controls,
-    chartGrid,
-  );
+  const utilization = el("div");
+  utilization.append(runnerSummary, chartGrid);
   deviceChart = new DeviceChart(root, hosts);
-  utilization.append(deviceChart.element);
-  root.replaceChildren(header, utilization, gitOps, fleetHeading, hostGrid, details, footer);
+  const devices = el("div");
+  devices.append(deviceChart.element);
+  const fleet = el("div");
+  fleet.append(el("h2", undefined, "Runner fleet"), hostGrid, details);
+  const tabs = [
+    { id: "utilization", label: "Utilization", panel: utilization, timeWindow: true },
+    { id: "cpu", label: "CPU timing", panel: cpuGrid, timeWindow: true },
+    { id: "pressure", label: "Pressure", panel: pressureGrid, timeWindow: true },
+    { id: "devices", label: "Block devices", panel: devices, timeWindow: true },
+    { id: "git-ops", label: "Git Ops", panel: gitOps },
+    { id: "hosts", label: "Hosts", panel: fleet },
+  ];
+  root.replaceChildren(
+    header,
+    mountTabs(tabs, controls),
+    controls,
+    ...tabs.map((tab) => tab.panel),
+    footer,
+  );
   mountGitOps(gitOps);
 }
 
@@ -269,7 +283,12 @@ function buildCharts(): void {
     });
     head.append(legend);
     card.append(head, el("p", "chart-desc", spec.description));
-    chartGrid.append(card);
+    const grid = spec.id.startsWith("psi_")
+      ? pressureGrid
+      : spec.id.startsWith("cpu_")
+        ? cpuGrid
+        : chartGrid;
+    grid.append(card);
     return new LiveChart(root, card, spec, series);
   });
 }
@@ -387,7 +406,17 @@ function renderRunnerJobs(now: number): void {
   const tiles = el("div", "tiles");
   for (const host of hosts) {
     const index = runnerHosts.indexOf(host.id);
-    const count = index < 0 ? "Not monitored" : String(counts[index] ?? "Unavailable");
+    const capacity = runnerSamples.get(host.id)?.runnerCapacity;
+    const age = now - (capacity?.observedAt ?? 0);
+    const slots =
+      capacity !== undefined && age >= 0 && age <= CAPACITY_AFTER_S ? capacity.slots : null;
+    const running = counts[index] ?? null;
+    const count =
+      index < 0
+        ? "Not monitored"
+        : slots === null
+          ? String(running ?? "Unavailable")
+          : `${String(running ?? "—")} / ${String(slots)}`;
     const sample = samples.get(host.id)?.at(-1);
     const detail =
       sample !== undefined && now - sample.ts <= ONLINE_AFTER_S
@@ -397,6 +426,11 @@ function renderRunnerJobs(now: number): void {
   }
   runnerSummary.replaceChildren(
     el("h2", undefined, `GitHub Actions jobs running on Dell runners: ${label}`),
+    el(
+      "p",
+      "chart-desc",
+      "Running jobs / configured slots. Pool reservations and routing can reduce availability.",
+    ),
     tiles,
   );
 }

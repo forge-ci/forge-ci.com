@@ -9,7 +9,7 @@ export interface ChartSpec {
   readonly id: string;
   readonly title: string;
   readonly description: string;
-  readonly value: (s: Sample) => number;
+  readonly value: (s: Sample) => number | null;
   readonly format: (v: number) => string;
   /** Fixed upper bound (percentages); otherwise the axis fits the data from 0. */
   readonly fixedMax?: number;
@@ -57,13 +57,19 @@ function readTheme(root: HTMLElement, series: readonly SeriesSpec[]): Theme {
  * those neighbours can belong to another host, shrinking the gap to nothing. */
 export function alignSeries(
   hosts: readonly (readonly Sample[])[],
-  value: (s: Sample) => number,
+  value: (s: Sample) => number | null,
   start: number,
   end: number,
 ): uPlot.AlignedData {
   const points = hosts.map((samples) =>
     samples.filter((s) => s.ts >= start && s.ts <= end).map((s) => [s.ts, value(s)] as const),
   );
+  return alignPoints(points);
+}
+
+function alignPoints(
+  points: readonly (readonly (readonly [number, number | null])[])[],
+): uPlot.AlignedData {
   const xs = [...new Set(points.flatMap((p) => p.map(([x]) => x)))].sort((a, b) => a - b);
   const ys = points.map((pts) => {
     const out: (number | null)[] = [];
@@ -74,7 +80,7 @@ export function alignSeries(
       const b = pts[k + 1];
       if (a === undefined || x < a[0]) out.push(null);
       else if (x === a[0]) out.push(a[1]);
-      else if (b !== undefined && b[0] - a[0] <= GAP_S) {
+      else if (a[1] !== null && b !== undefined && b[1] !== null && b[0] - a[0] <= GAP_S) {
         out.push(a[1] + ((b[1] - a[1]) * (x - a[0])) / (b[0] - a[0]));
       } else out.push(null);
     }
@@ -133,6 +139,15 @@ export class LiveChart {
   update(hosts: readonly (readonly Sample[])[], start: number, end: number): void {
     this.window = [start, end];
     this.draw(alignSeries(hosts, this.spec.value, start, end));
+  }
+
+  updateSeries(
+    points: readonly (readonly (readonly [number, number | null])[])[],
+    start: number,
+    end: number,
+  ): void {
+    this.window = [start, end];
+    this.draw(alignPoints(points));
   }
 
   private draw(data: uPlot.AlignedData): void {

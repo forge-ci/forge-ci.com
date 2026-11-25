@@ -16,6 +16,7 @@ Environment:
 
 from __future__ import annotations
 
+import contextlib
 import http.client
 import json
 import math
@@ -49,6 +50,9 @@ class Counters:
     net_tx: int
     disk_read: int
     disk_write: int
+    cpu_wait: int
+    cpu_steal: int
+    disks: dict[str, DiskCounters]
 
 
 def parse_cpu(stat: str) -> tuple[int, int]:
@@ -103,16 +107,50 @@ def parse_net(netdev: str, sys_net: Path | None = None) -> tuple[int, int]:
     return rx, tx
 
 
-def parse_disk(diskstats: str) -> tuple[int, int]:
-    """Sum bytes read/written over whole disks in /proc/diskstats."""
-    read = write = 0
+@dataclass(frozen=True)
+class DiskCounters:
+    read_bytes: int
+    write_bytes: int
+    reads: int
+    writes: int
+    request_ms: int
+    busy_ms: int
+    weighted_ms: int
+
+
+def disk_counters(diskstats: str) -> dict[str, DiskCounters]:
+    disks: dict[str, DiskCounters] = {}
     for line in diskstats.splitlines():
-        fields = line.split()
-        if len(fields) < 10 or not WHOLE_DISK.match(fields[2]):  # noqa: PLR2004
+        v = line.split()
+        if len(v) < 14 or not WHOLE_DISK.fullmatch(v[2]):  # noqa: PLR2004
             continue
-        read += int(fields[5]) * SECTOR_BYTES
-        write += int(fields[9]) * SECTOR_BYTES
-    return read, write
+        disks[v[2]] = DiskCounters(
+            int(v[5]) * SECTOR_BYTES,
+            int(v[9]) * SECTOR_BYTES,
+            int(v[3]),
+            int(v[7]),
+            int(v[6]) + int(v[10]),
+            int(v[12]),
+            int(v[13]),
+        )
+    return disks
+
+
+def parse_disk(diskstats: str) -> tuple[int, int]:
+    disks = disk_counters(diskstats).values()
+    return sum(d.read_bytes for d in disks), sum(d.write_bytes for d in disks)
+
+
+def disk_sample(new: DiskCounters, old: DiskCounters, seconds: float) -> dict[str, float | None]:
+    requests = new.reads + new.writes - old.reads - old.writes
+    elapsed = new.request_ms - old.request_ms
+    return {
+        "busy_pct": round(min(100.0, rate(new.busy_ms, old.busy_ms, seconds) / 10), 2),
+        "queue_depth": round(rate(new.weighted_ms, old.weighted_ms, seconds) / 1000, 3),
+        "await_ms": round(elapsed / requests, 2) if requests > 0 and elapsed >= 0 else None,
+        "read_bps": round(rate(new.read_bytes, old.read_bytes, seconds), 1),
+        "write_bps": round(rate(new.write_bytes, old.write_bytes, seconds), 1),
+    }
 
 
 def rate(new: int, old: int, seconds: float) -> float:
@@ -135,10 +173,50 @@ class Proc:
         stat = self.read("stat")
         busy, total = parse_cpu(stat)
         rx, tx = parse_net(self.read("net/dev"), self.sys_net)
-        dread, dwrite = parse_disk(self.read("diskstats"))
-        return Counters(time.monotonic(), busy, total, rx, tx, dread, dwrite), stat
+        disks = disk_counters(self.read("diskstats"))
+        cpu = next(line.split()[1:] for line in stat.splitlines() if line.startswith("cpu "))
+        wait, steal = (int(cpu[i]) if len(cpu) > i else 0 for i in (4, 7))
+        return Counters(
+            time.monotonic(),
+            busy,
+            total,
+            rx,
+            tx,
+            sum(d.read_bytes for d in disks.values()),
+            sum(d.write_bytes for d in disks.values()),
+            wait,
+            steal,
+            disks,
+        ), stat
 
-    def sample(self, prev: Counters) -> tuple[dict[str, float | int], Counters]:
+    def diagnostics(self, cur: Counters, prev: Counters) -> dict[str, object]:
+        seconds = cur.at - prev.at
+        span = cur.cpu_total - prev.cpu_total
+        steal = cur.cpu_steal - prev.cpu_steal
+        values: dict[str, object] = {}
+        if span > 0:
+            for field, ticks in (
+                ("cpu_on_pct", cur.cpu_busy - prev.cpu_busy - steal),
+                ("cpu_iowait_pct", cur.cpu_wait - prev.cpu_wait),
+                ("cpu_steal_pct", steal),
+            ):
+                if ticks >= 0:
+                    values[field] = round(min(100.0, 100 * ticks / span), 2)
+        for resource in ("cpu", "io", "memory"):
+            with contextlib.suppress(OSError, ValueError):
+                for line in self.read(f"pressure/{resource}").splitlines():
+                    kind, *fields = line.split()
+                    if kind == "some" or (kind == "full" and resource == "io"):
+                        avg = next((value for value in fields if value.startswith("avg10=")), None)
+                        if avg is not None:
+                            values[f"psi_{resource}_{kind}_pct"] = float(avg.split("=", 1)[1])
+        values["devices"] = {
+            name: disk_sample(cur.disks[name], prev.disks[name], seconds)
+            for name in sorted(cur.disks.keys() & prev.disks.keys())[:16]
+        }
+        return values
+
+    def sample(self, prev: Counters) -> tuple[dict[str, object], Counters]:
         cur, stat = self.counters()
         dt = cur.at - prev.at
         cpu_span = cur.cpu_total - prev.cpu_total
@@ -148,7 +226,7 @@ class Proc:
         mem_avail = mem.get("MemAvailable", mem.get("MemFree", 0))
         swap_total = mem.get("SwapTotal", 0)
         load = self.read("loadavg").split()
-        values: dict[str, float | int] = {
+        values: dict[str, object] = {
             "cpu_pct": round(min(max(cpu_pct, 0.0), 100.0), 2),
             "cpu_count": count_cpus(stat),
             "load1": float(load[0]),
@@ -163,6 +241,7 @@ class Proc:
             "disk_read_bps": round(rate(cur.disk_read, prev.disk_read, dt), 1),
             "disk_write_bps": round(rate(cur.disk_write, prev.disk_write, dt), 1),
             "uptime_s": float(self.read("uptime").split()[0]),
+            "diagnostics": self.diagnostics(cur, prev),
         }
         return values, cur
 
@@ -200,7 +279,7 @@ def current_runner_jobs(directory: Path, now: float) -> dict[str, float | int]:
     return {}
 
 
-def post(url: str, token: str, values: dict[str, float | int]) -> int:
+def post(url: str, token: str, values: dict[str, object]) -> int:
     parts = urllib.parse.urlsplit(url)
     if parts.scheme != "https" or not parts.hostname:
         msg = f"not an https URL: {url}"

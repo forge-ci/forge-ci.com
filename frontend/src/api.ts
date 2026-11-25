@@ -19,7 +19,51 @@ export const METRIC_FIELDS = [
 ] as const;
 
 export type MetricName = (typeof METRIC_FIELDS)[number];
+const diagnosticFields = [
+  "cpu_on_pct",
+  "cpu_iowait_pct",
+  "cpu_steal_pct",
+  "psi_cpu_some_pct",
+  "psi_io_some_pct",
+  "psi_io_full_pct",
+  "psi_memory_some_pct",
+] as const;
+const deviceFields = ["busy_pct", "queue_depth", "await_ms", "read_bps", "write_bps"] as const;
+export type DiagnosticField = (typeof diagnosticFields)[number];
+export type DeviceField = (typeof deviceFields)[number];
+type DiagnosticValues = Partial<Record<DiagnosticField, number>>;
+type DeviceValues = Partial<Record<DeviceField, number>>;
+interface Diagnostics {
+  readonly counters: DiagnosticValues;
+  readonly devices: ReadonlyMap<string, DeviceValues>;
+}
+
+function optionalNumbers<K extends string>(
+  value: unknown,
+  fields: readonly K[],
+): Partial<Record<K, number>> {
+  const result: Partial<Record<K, number>> = {};
+  const raw = record(value, "diagnostic counters");
+  for (const field of fields) {
+    const v = raw[field];
+    if (typeof v === "number" && Number.isFinite(v)) result[field] = v;
+  }
+  return result;
+}
+
+function diagnostics(value: unknown): Diagnostics | undefined {
+  if (value === null || value === undefined) return undefined;
+  const raw = record(value, "diagnostics");
+  const devices = new Map(
+    Object.entries(record(raw["devices"], "diagnostics.devices")).map(
+      ([name, values]) => [name, optionalNumbers(values, deviceFields)] as const,
+    ),
+  );
+  return { counters: optionalNumbers(raw, diagnosticFields), devices };
+}
+
 export type Sample = Readonly<Record<MetricName | "ts", number>> & {
+  readonly diagnostics?: Diagnostics;
   readonly runnerJobs?: { readonly count: number; readonly observedAt: number };
 };
 
@@ -81,7 +125,8 @@ export function parseSample(value: unknown): Sample {
   for (const field of METRIC_FIELDS) out[field] = num(r[field], `sample.${field}`);
   const count = r["gh_jobs_running"];
   const observedAt = r["gh_jobs_updated_at"];
-  const sample = out as Sample;
+  const diag = diagnostics(r["diagnostics"]);
+  const sample = diag === undefined ? (out as Sample) : { ...(out as Sample), diagnostics: diag };
   if (
     typeof count === "number" &&
     Number.isSafeInteger(count) &&
@@ -125,6 +170,8 @@ export function parseHistory(value: unknown): History {
     const series = record(raw, `history.${id}`);
     const ts = numArray(series["ts"], `${id}.ts`);
     const columns = record(series["columns"], `${id}.columns`);
+    const rawDiagnostics = series["diagnostics"];
+    const diag = Array.isArray(rawDiagnostics) ? rawDiagnostics.map(diagnostics) : [];
     const cols = new Map<MetricName, number[]>(
       METRIC_FIELDS.map((f) => [f, numArray(columns[f], `${id}.${f}`)]),
     );
@@ -133,7 +180,8 @@ export function parseHistory(value: unknown): History {
       ts.map((t, i) => {
         const s: Partial<Record<MetricName | "ts", number>> = { ts: t };
         for (const f of METRIC_FIELDS) s[f] = cols.get(f)?.[i] ?? 0;
-        return s as Sample;
+        const row = diag[i];
+        return row === undefined ? (s as Sample) : { ...(s as Sample), diagnostics: row };
       }),
     );
   }

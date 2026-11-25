@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING
 
 import pytest
@@ -141,3 +142,42 @@ def test_runner_jobs_fall_back_to_host_workers(tmp_path: Path) -> None:
     assert current_runner_jobs(tmp_path, 163) == {}
     dispatcher.write_text('{"gh_jobs_running":5,"updated_at":130}', encoding="utf-8")
     assert current_runner_jobs(tmp_path, 133) == {"gh_jobs_running": 5, "gh_jobs_updated_at": 130}
+
+
+def test_bottleneck_samples_separate_cpu_pressure_and_disks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_proc(tmp_path, STAT)
+    pressure = tmp_path / "pressure"
+    pressure.mkdir()
+    _ = (pressure / "cpu").write_text("some avg10=2.50 avg60=1.00 avg300=0.00 total=120\n")
+    _ = (pressure / "io").write_text(
+        """some avg10=28.00 avg60=10.00 avg300=0.00 total=460
+full avg10=20.00 avg60=9.00 avg300=0.00 total=330
+"""
+    )
+
+    times = iter((100.0, 105.0))
+    monkeypatch.setattr(time, "monotonic", lambda: next(times, 105.0))
+    proc = Proc(tmp_path)
+    previous, _ = proc.counters()
+    _ = (tmp_path / "stat").write_text("cpu 200 0 100 850 100 0 0 50\n")
+    _ = (tmp_path / "diskstats").write_text("8 0 sda 105 0 20 100 55 0 35 300 0 2500 6000\n")
+    sample, _ = proc.sample(previous)
+    assert sample["diagnostics"] == {
+        "cpu_on_pct": 50.0,
+        "cpu_iowait_pct": 16.67,
+        "cpu_steal_pct": 16.67,
+        "psi_cpu_some_pct": 2.5,
+        "psi_io_some_pct": 28.0,
+        "psi_io_full_pct": 20.0,
+        "devices": {
+            "sda": {
+                "busy_pct": 50.0,
+                "queue_depth": 1.2,
+                "await_ms": 40.0,
+                "read_bps": 1024.0,
+                "write_bps": 1536.0,
+            }
+        },
+    }

@@ -202,3 +202,28 @@ def test_latest_runner_jobs_preserve_observation_timestamp(
         assert latest.gh_jobs_updated_at == observed
         assert latest.ts == clock.now
         clock.now += 5
+
+
+def test_diagnostic_history_preserves_legacy_gaps(client: TestClient, clock: Clock) -> None:
+    assert post(client, TOKEN, sample()) == 204
+    clock.now += 5
+    diagnostic = {
+        "cpu_on_pct": 17,
+        "psi_io_some_pct": 42,
+        "devices": {
+            "sda": {
+                "busy_pct": 92,
+                "queue_depth": 4,
+                "await_ms": None,
+                "read_bps": 1200,
+                "write_bps": 8200,
+            }
+        },
+    }
+    assert post(client, TOKEN, {**sample(), "diagnostics": diagnostic}) == 204
+    history = History.model_validate_json(client.get("/api/history").text)
+    before, after = history.hosts["dell-jw22zc3"].diagnostics
+    assert before is None
+    assert after is not None
+    assert after.psi_io_some_pct == 42
+    assert after.devices["sda"].await_ms is None

@@ -4,11 +4,13 @@ import {
   fetchHistory,
   fetchHosts,
   parseSampleEvent,
+  type DiagnosticField,
   type HostInfo,
   type HostStatus,
   type Sample,
 } from "./api";
 import { LiveChart, type ChartSpec, type SeriesSpec } from "./charts";
+import { DeviceChart } from "./device-chart";
 import { duration, gib, pct, rate, ratio } from "./format";
 import { mountGitOps } from "./git-ops";
 
@@ -20,6 +22,17 @@ const WINDOWS = [
   { seconds: 60 * 60, label: "1 hour" },
   { seconds: 2 * 60 * 60, label: "2 hours" },
 ] as const;
+
+function diagnosticChart(field: DiagnosticField, title: string, description: string): ChartSpec {
+  return {
+    id: field,
+    title,
+    description,
+    fixedMax: 100,
+    format: pct,
+    value: (sample) => sample.diagnostics?.counters[field] ?? null,
+  };
+}
 
 const CHARTS: readonly ChartSpec[] = [
   {
@@ -47,6 +60,37 @@ const CHARTS: readonly ChartSpec[] = [
     value: (s) => s.load1 / s.cpu_count,
     format: ratio,
   },
+  diagnosticChart(
+    "cpu_on_pct",
+    "On-CPU time",
+    "CPU time spent executing work, including interrupts. Steal is excluded.",
+  ),
+  diagnosticChart(
+    "cpu_iowait_pct",
+    "CPU I/O wait",
+    "CPU accounting time spent idle with outstanding I/O. Compare with I/O task stalls to see how much work is blocked.",
+  ),
+  diagnosticChart("cpu_steal_pct", "CPU steal", "CPU time a hypervisor took away from this guest."),
+  diagnosticChart(
+    "psi_cpu_some_pct",
+    "CPU contention",
+    "10-second Linux PSI. Share of wall time when at least one runnable task was waiting for a CPU.",
+  ),
+  diagnosticChart(
+    "psi_io_some_pct",
+    "I/O stalls",
+    "10-second Linux PSI. Share of wall time when at least one task stalled on I/O.",
+  ),
+  diagnosticChart(
+    "psi_io_full_pct",
+    "I/O stalls across all active tasks",
+    "10-second Linux PSI. Share of wall time when all non-idle tasks stalled on I/O together.",
+  ),
+  diagnosticChart(
+    "psi_memory_some_pct",
+    "Memory stalls",
+    "10-second Linux PSI. Share of wall time when at least one task stalled on memory pressure.",
+  ),
   {
     id: "net",
     title: "Network throughput",
@@ -80,6 +124,7 @@ let windowSeconds: number = WINDOWS[1].seconds;
 let clockOffset = 0; // server time minus browser time, in seconds
 let connected = false;
 let charts: LiveChart[] = [];
+let deviceChart: DeviceChart | undefined;
 
 const serverNow = (): number => Date.now() / 1000 + clockOffset;
 
@@ -200,6 +245,8 @@ function buildShell(): void {
     controls,
     chartGrid,
   );
+  deviceChart = new DeviceChart(root, hosts);
+  utilization.append(deviceChart.element);
   root.replaceChildren(header, utilization, gitOps, fleetHeading, hostGrid, details, footer);
   mountGitOps(gitOps);
 }
@@ -358,6 +405,7 @@ function redraw(): void {
   const now = serverNow();
   const series = hosts.map((h) => samples.get(h.id) ?? []);
   for (const chart of charts) chart.update(series, now - windowSeconds, now);
+  deviceChart?.update(samples, now - windowSeconds, now);
   renderRunnerJobs(now);
   renderHosts(now);
   renderTable(now);
@@ -428,6 +476,7 @@ async function main(): Promise<void> {
   setInterval(redraw, 1000);
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
     for (const chart of charts) chart.retheme();
+    deviceChart?.retheme();
   });
 }
 

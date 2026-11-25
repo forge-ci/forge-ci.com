@@ -108,3 +108,21 @@ events from the runner listener journal, using the existing host metrics token.
 Events contain timestamp, runner and job name, phase, and result. GitHub
 supplies repository, workflow, branch, attempt, job status, and step metadata.
 The job details endpoint is available to signed-in dashboard users.
+
+### Diagnosing fleet load
+
+Compare **On-CPU time** with **CPU contention** and **I/O stalls** on the
+same time range. On-CPU and steal are shares of aggregate logical CPU time.
+Linux PSI reports wall-time stalls from the kernel's 10-second rolling
+averages, so CPU, memory, and I/O PSI can overlap. The I/O full series
+shows when all non-idle tasks were stalled on I/O together. CPU I/O wait
+comes from CPU accounting and can differ substantially from task I/O PSI.
+These are host signals, not a per-process off-CPU profile.
+
+Use **Block device diagnostics** to compare the selected host's whole
+disks by busy time, read/write latency, average outstanding requests,
+and throughput. Read/write latency includes queueing and service time.
+A missing latency sample means there were no completed reads or writes
+to measure, or the counter reset. Partitions, loop devices, device-mapper
+layers, and zram are excluded. Samples from older agents have gaps in
+the new series.

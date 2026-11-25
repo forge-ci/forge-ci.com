@@ -5,6 +5,7 @@ description = "forge-ci.com: live utilization dashboard for the forge CI fleet"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi==0.165.0",
+    "httpx2==2.16.2",
     "pydantic==2.14.4",
     "uvicorn[standard]==0.54.0",
 ]
@@ -12,7 +13,6 @@ dependencies = [
 [dependency-groups]
 dev = [
     "basedpyright==1.40.2",
-    "httpx2==2.16.2",
     "pytest==9.2.0",
     "ruff==0.17.6",
 ]

@@ -50,6 +50,10 @@ def runner_event(line: str) -> dict[str, object] | None:
     }
 
 
+def journal_lines(args: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(args, capture_output=True, text=True, check=False, timeout=20)  # noqa: S603
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     _ = parser.add_argument(
@@ -63,9 +67,13 @@ def main() -> None:
         "--grep=Running job:|completed with result:",
         "--since=-30 minutes",
     ]
-    if state.is_file():
-        args += ["--after-cursor", state.read_text().strip()]
-    output = subprocess.run(args, capture_output=True, text=True, check=False, timeout=20)  # noqa: S603
+    cursor_args = ["--after-cursor", state.read_text().strip()] if state.is_file() else []
+    output = journal_lines(args + cursor_args)
+    if output.returncode and output.stderr and cursor_args:
+        # A journal rotation can remove the last acknowledged cursor.
+        output = journal_lines(args)
+    if output.returncode == 1 and not output.stdout and not output.stderr:
+        return
     if output.returncode:
         msg = "could not read runner journal"
         raise RuntimeError(msg)

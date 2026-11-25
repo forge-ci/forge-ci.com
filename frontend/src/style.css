@@ -400,3 +400,75 @@ footer a {
   background: none;
   cursor: pointer;
 }
+
+.git-ops {
+  margin-bottom: 28px;
+}
+
+.git-ops h2 {
+  font-size: clamp(26px, 4vw, 42px);
+  margin: 0;
+}
+
+.git-ops h3 {
+  margin: 24px 0 8px;
+}
+
+.ops-status {
+  color: var(--text-secondary);
+}
+
+.ops-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 10px;
+}
+
+.ops-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ops-stat strong {
+  font-size: 32px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ops-scroll {
+  overflow-x: auto;
+  margin-bottom: 10px;
+}
+
+.git-ops table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 620px;
+}
+
+.git-ops th,
+.git-ops td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.git-ops summary {
+  cursor: pointer;
+}
+
+.ops-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.git-ops :is(input, select, button) {
+  background: var(--surface-1);
+  color: inherit;
+  border: 1px solid var(--border);
+  padding: 5px 9px;
+  border-radius: 6px;
+}

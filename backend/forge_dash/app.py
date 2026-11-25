@@ -11,15 +11,24 @@ from typing import TYPE_CHECKING, Annotated, final
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response, status
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from forge_dash.config import HOSTS, Settings
+from forge_dash.git_ops import (
+    MAX_SNAPSHOT_BYTES,
+    ActionsSnapshot,
+    GitOpsFeed,
+    HostedRunnerEvent,
+    RunnerEvent,
+)
 from forge_dash.models import History, HostStatus, IngestSample, Sample
 from forge_dash.soldr_pairing import install_pairing_routes
 from forge_dash.store import DROPPED, MetricsStore
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
+
+    from forge_dash.browser_login import BrowserLogin
 
 MAX_INGEST_BYTES = 4096
 MAX_SUBSCRIBERS = 500
@@ -175,6 +184,64 @@ class Dashboard:
         )
 
 
+async def _read_git_ops[T: BaseModel](request: Request, model: type[T], limit: int) -> T:
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > limit:
+            raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "snapshot too large")
+    try:
+        return model.model_validate_json(body)
+    except ValidationError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid snapshot") from exc
+
+
+def _install_git_ops(app: FastAPI, dash: Dashboard, browser: BrowserLogin) -> None:
+    actions: ActionsSnapshot | None = None
+    events: dict[tuple[str, str], HostedRunnerEvent] = {}
+    recent_events = 200
+
+    @app.post("/api/git-ops/ingest", status_code=status.HTTP_204_NO_CONTENT)
+    async def ingest_actions(
+        request: Request, authorization: Annotated[str | None, Header()] = None
+    ) -> Response:
+        nonlocal actions
+        if _authenticate(authorization, dash.settings.token_hashes) != "admin-droplet":
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "admin droplet required")
+        snapshot = await _read_git_ops(request, ActionsSnapshot, MAX_SNAPSHOT_BYTES)
+        if actions is None or snapshot.observed_at > actions.observed_at:
+            actions = snapshot
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @app.post("/api/git-ops/runner-event", status_code=status.HTTP_204_NO_CONTENT)
+    async def runner_event(
+        request: Request, authorization: Annotated[str | None, Header()] = None
+    ) -> Response:
+        host = _authenticate(authorization, dash.settings.token_hashes)
+        if host not in {"dell-fsx3mn2", "dell-jw22zc3"}:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "runner host required")
+        event = await _read_git_ops(request, RunnerEvent, MAX_INGEST_BYTES)
+        events[(host, event.id)] = HostedRunnerEvent.model_validate(
+            {"host": host, **event.model_dump()}
+        )
+        if len(events) > recent_events:
+            oldest = min(events, key=lambda key: events[key].observed_at)
+            del events[oldest]
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @app.get("/api/git-ops")
+    async def git_ops(request: Request, response: Response) -> GitOpsFeed:
+        if not browser.signed_in(request):
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "sign in required")
+        response.headers["Cache-Control"] = "private, no-store"
+        return GitOpsFeed(
+            actions=actions,
+            runner_events=sorted(
+                events.values(), key=lambda event: event.observed_at, reverse=True
+            ),
+        )
+
+
 def create_app(
     settings: Settings | None = None,
     clock: Callable[[], float] = time.time,
@@ -190,6 +257,8 @@ def create_app(
     app.get("/api/stream")(dash.stream)
     static_dir = dash.settings.static_dir
     browser = install_pairing_routes(app, clock, static_dir)
+
+    _install_git_ops(app, dash, browser)
     if static_dir is not None:
 
         @app.get("/", response_model=None)

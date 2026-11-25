@@ -86,3 +86,24 @@ Configure `FORGE_SOLDR_WORKER_ORIGIN` with the HTTPS origin of a worker that
 accepts Forge CI grants. Set `FORGE_SOLDR_WORKER_KEY` to a separate, randomly
 generated secret of at least 32 bytes and provision it on that worker.
 The discovery API returns no worker until both settings are valid.
+
+## Git Ops
+
+The signed-in dashboard opens with repository activity, per-job workflow and step
+details, execution placement, and a sampled 24-hour outcome and duration
+summary. The Dell host counts and utilization charts are under Runner fleet.
+
+`deploy/install-git-ops.sh actions root@signal-host` uses the existing
+`forge-pool-watch` GitHub App on the admin droplet. It requests Actions read
+access for repositories in that watcher's configuration, then posts a snapshot
+with the droplet's existing metrics credential. The collector polls live runs
+every two minutes and includes up to 12 completed workflow runs per repository
+from the past 24 hours. A repository with incomplete coverage is marked in the
+table. The GitHub counts include hosted jobs and are scoped to watched
+repositories. The Dell host counts cover all locally observed workers.
+
+`deploy/install-git-ops.sh runner root@runner-host` relays start and finish
+events from the runner listener journal, using the existing host metrics token.
+Events contain timestamp, runner and job name, phase, and result. GitHub
+supplies repository, workflow, branch, attempt, job status, and step metadata.
+The job details endpoint is available to signed-in dashboard users.

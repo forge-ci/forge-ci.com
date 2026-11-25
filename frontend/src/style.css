@@ -472,3 +472,13 @@ footer a {
   padding: 5px 9px;
   border-radius: 6px;
 }
+
+.dashboard-disclosure {
+  margin: 10px 0;
+}
+
+.dashboard-disclosure > summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 8px 0;
+}

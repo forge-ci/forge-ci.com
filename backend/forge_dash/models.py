@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import Annotated, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -28,6 +28,30 @@ _MAX_BYTES = 1 << 50  # 1 PiB: anything larger is a broken agent, not a real hos
 _MAX_RATE = 1e12  # 1 TB/s
 
 
+Percent = Annotated[float, Field(ge=0, le=100)]
+Nonnegative = Annotated[float, Field(ge=0, allow_inf_nan=False)]
+DeviceName = Annotated[str, Field(pattern=r"^[a-z0-9]+$", max_length=32)]
+
+
+class DiskDiagnostics(BaseModel):
+    busy_pct: Percent
+    queue_depth: Nonnegative
+    await_ms: Nonnegative | None
+    read_bps: Nonnegative
+    write_bps: Nonnegative
+
+
+class Diagnostics(BaseModel):
+    cpu_on_pct: Percent | None = None
+    cpu_iowait_pct: Percent | None = None
+    cpu_steal_pct: Percent | None = None
+    psi_cpu_some_pct: Percent | None = None
+    psi_io_some_pct: Percent | None = None
+    psi_io_full_pct: Percent | None = None
+    psi_memory_some_pct: Percent | None = None
+    devices: dict[DeviceName, DiskDiagnostics] = Field(default_factory=dict, max_length=16)
+
+
 class IngestSample(BaseModel):
     """One utilization sample as an agent posts it. The server stamps the time."""
 
@@ -47,6 +71,7 @@ class IngestSample(BaseModel):
     disk_read_bps: float = Field(ge=0, le=_MAX_RATE)
     disk_write_bps: float = Field(ge=0, le=_MAX_RATE)
     uptime_s: float = Field(ge=0, le=1e10)
+    diagnostics: Diagnostics | None = None
     gh_jobs_running: int | None = Field(default=None, strict=True, ge=0, le=2**53 - 1)
     gh_jobs_updated_at: float | None = Field(default=None, strict=True, gt=0, allow_inf_nan=False)
 
@@ -97,6 +122,7 @@ class SeriesColumns(BaseModel):
 
     ts: list[float]
     columns: dict[str, list[float]]
+    diagnostics: list[Diagnostics | None] = Field(default_factory=list)
 
 
 class History(BaseModel):

@@ -45,6 +45,7 @@ class MetricsStore:
         values = [s.metrics() for s in rows]
         return SeriesColumns(
             ts=[s.ts for s in rows],
+            diagnostics=[s.diagnostics for s in rows],
             columns={name: [v[i] for v in values] for i, name in enumerate(METRIC_FIELDS)},
         )
 

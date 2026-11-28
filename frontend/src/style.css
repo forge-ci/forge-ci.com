@@ -401,6 +401,15 @@ footer a {
   cursor: pointer;
 }
 
+.freshness {
+  /* Fixed width so the ticking label never shifts the header. */
+  display: inline-block;
+  min-width: 15em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
 .git-ops {
   margin-bottom: 28px;
 }

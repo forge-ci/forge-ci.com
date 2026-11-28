@@ -1,4 +1,5 @@
 import { duration } from "./format";
+import { UpdateGate } from "./live-dom";
 
 interface Job {
   readonly id: number;
@@ -186,6 +187,7 @@ export function mountGitOps(root: HTMLElement): void {
     jobDetails,
   );
   root.append(section);
+  const gate = new UpdateGate(section);
 
   function renderJobs(): void {
     const term = search.value.toLowerCase().trim();
@@ -347,7 +349,8 @@ export function mountGitOps(root: HTMLElement): void {
       const response = await fetch("/api/git-ops");
       if (!response.ok) throw new Error(String(response.status));
       feed = (await response.json()) as Feed;
-      render();
+      // Hold the refresh while the user selects or hovers a table here.
+      gate.run(render);
     } catch {
       status.textContent = "Git Ops data could not be refreshed.";
     }

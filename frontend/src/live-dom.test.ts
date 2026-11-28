@@ -92,3 +92,23 @@ describe("selection guard", () => {
     expect(runs).toBe(2);
   });
 });
+
+describe("parseAttestation", () => {
+  it("parses requests and drops malformed ones", async () => {
+    const { parseAttestation } = await import("./api");
+    const parsed = parseAttestation({
+      running: 2,
+      cpu_pct: 40.5,
+      observed_at: 10,
+      requests: [
+        { command: "soldr cargo clippy -p clud", crate: "clud", elapsed_s: 30, cpu_pct: 20 },
+        { command: 5 },
+      ],
+    });
+    expect(parsed?.requests).toEqual([
+      { command: "soldr cargo clippy -p clud", crate: "clud", elapsedS: 30, cpuPct: 20 },
+    ]);
+    expect(parseAttestation(null)).toBeUndefined();
+    expect(parseAttestation({ running: "x" })).toBeUndefined();
+  });
+});

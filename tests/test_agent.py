@@ -5,8 +5,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from forge_dash.models import IngestSample
 from forge_metrics_agent import (
+    AttestationScanner,
     Proc,
+    Task,
     count_cpus,
     current_runner_jobs,
     is_physical,
@@ -14,8 +17,10 @@ from forge_metrics_agent import (
     parse_disk,
     parse_meminfo,
     parse_net,
+    parse_task,
     rate,
     read_runner_jobs,
+    short_command,
 )
 
 if TYPE_CHECKING:
@@ -195,3 +200,95 @@ def test_runner_slots_survive_short_dispatcher_stalls(tmp_path: Path) -> None:
         "gh_jobs_updated_at": 145,
     }
     assert current_runner_jobs(tmp_path, 401) == {}
+
+
+def _task(root: Path, pid: int, ppid: int, comm: str, ticks: int, argv: list[str]) -> None:  # noqa: PLR0913, PLR0917
+    d = root / str(pid)
+    d.mkdir(exist_ok=True)
+    fields = ["S", str(ppid), *["0"] * 9, str(ticks), "0", *["0"] * 6, "1000", "0", "0"]
+    _ = (d / "stat").write_text(f"{pid} ({comm}) {' '.join(fields)}\n")
+    _ = (d / "cmdline").write_bytes(b"\0".join(a.encode() for a in argv) + b"\0")
+
+
+def test_parse_task_handles_spaces_in_comm() -> None:
+    task = parse_task(7, "7 (a (b) c) S 3 0 0 0 0 0 0 0 0 0 11 4 0 0 0 0 0 0 99 0 0\n")
+    assert task == Task(7, 3, "a (b) c", 15, 99)
+    assert parse_task(7, "garbage") is None
+
+
+def test_attestation_scanner_finds_requests_and_daemon_compiles(tmp_path: Path) -> None:
+    worker = "/home/u/forge-ci-paired-worker-1/worker-attestation-abc-bin/soldr"
+    scanner = AttestationScanner(tmp_path)
+    assert scanner.scan(100, 20.0, 1.0) is None  # no server: nothing to report
+
+    def write(clippy_ticks: int, rustc_ticks: int) -> None:
+        _task(tmp_path, 10, 1, "soldr", 0, [worker, "remote", "serve", "--listen", "x"])
+        _task(tmp_path, 11, 10, "soldr", clippy_ticks, [worker, "cargo", "clippy", "-p", "clud"])
+        _task(tmp_path, 12, 10, "soldr-broker", 0, [])  # zombie broker: ignored
+        _task(tmp_path, 20, 1, "soldr-daemon", 0, ["/x/soldr-daemon"])
+        _task(
+            tmp_path, 21, 20, "rustc", rustc_ticks, ["rustc", "/home/u/forge-ci-paired-worker-1/s"]
+        )
+        _task(tmp_path, 22, 20, "rustc", 500, ["rustc", "/home/other/src"])  # not attestation
+        _task(tmp_path, 30, 1, "soldr", 0, ["/home/u/pilot/soldr", "remote", "serve"])
+
+    write(0, 0)
+    first = scanner.scan(100, 20.0, 1.0)
+    assert first is not None
+    assert first["running"] == 1
+    assert first["cpu_pct"] == 0.0  # first sighting has no baseline
+    write(30, 20)
+    snap = scanner.scan(100, 20.0, 2.0)
+    assert snap == {
+        "running": 1,
+        "cpu_pct": 50.0,
+        "requests": [
+            {
+                "command": "soldr cargo clippy -p clud",
+                "crate": "clud",
+                "elapsed_s": 10.0,
+                "cpu_pct": 30.0,
+            }
+        ],
+        "observed_at": 2.0,
+    }
+    assert short_command(["/a/b", "x" * 300]).endswith("…")
+
+
+def test_ingest_model_accepts_attestation() -> None:
+    base = {
+        "cpu_pct": 1.0,
+        "cpu_count": 2,
+        "load1": 0.0,
+        "load5": 0.0,
+        "load15": 0.0,
+        "mem_total_bytes": 1,
+        "mem_used_bytes": 0,
+        "swap_total_bytes": 0,
+        "swap_used_bytes": 0,
+        "net_rx_bps": 0.0,
+        "net_tx_bps": 0.0,
+        "disk_read_bps": 0.0,
+        "disk_write_bps": 0.0,
+        "uptime_s": 1.0,
+    }
+    request = {"command": "soldr test -p clud", "crate": "clud", "elapsed_s": 3.0, "cpu_pct": 9.0}
+    attestation = {
+        "running": 1,
+        "cpu_pct": 50.0,
+        "observed_at": 2.0,
+        "requests": [request],
+    }
+    sample = IngestSample.model_validate({**base, "attestation": attestation})
+    assert sample.attestation is not None
+    assert sample.attestation.requests[0].crate == "clud"
+    with pytest.raises(ValueError, match="crate"):
+        _ = IngestSample.model_validate(
+            {
+                **base,
+                "attestation": {
+                    **attestation,
+                    "requests": [{**request, "crate": "a b"}],
+                },
+            }
+        )

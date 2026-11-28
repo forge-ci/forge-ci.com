@@ -62,10 +62,50 @@ function diagnostics(value: unknown): Diagnostics | undefined {
   return { counters: optionalNumbers(raw, diagnosticFields), devices };
 }
 
+export interface AttestationRequest {
+  readonly command: string;
+  readonly crate: string | null;
+  readonly elapsedS: number;
+  readonly cpuPct: number;
+}
+
+export interface Attestation {
+  readonly running: number;
+  readonly cpuPct: number;
+  readonly requests: readonly AttestationRequest[];
+  readonly observedAt: number;
+}
+
+/** Attestation work a host reported, or undefined when absent or malformed. */
+export function parseAttestation(value: unknown): Attestation | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const r = value as Record<string, unknown>;
+  const { running, cpu_pct: cpuPct, observed_at: observedAt, requests } = r;
+  if (
+    typeof running !== "number" ||
+    typeof cpuPct !== "number" ||
+    typeof observedAt !== "number" ||
+    !Array.isArray(requests)
+  ) {
+    return undefined;
+  }
+  const parsed = requests.flatMap((item: unknown): AttestationRequest[] => {
+    if (typeof item !== "object" || item === null) return [];
+    const q = item as Record<string, unknown>;
+    const { command, crate, elapsed_s: elapsedS, cpu_pct: pct } = q;
+    if (typeof command !== "string" || typeof elapsedS !== "number" || typeof pct !== "number") {
+      return [];
+    }
+    return [{ command, crate: typeof crate === "string" ? crate : null, elapsedS, cpuPct: pct }];
+  });
+  return { running, cpuPct, observedAt, requests: parsed };
+}
+
 export type Sample = Readonly<Record<MetricName | "ts", number>> & {
   readonly diagnostics?: Diagnostics;
   readonly runnerCapacity?: { readonly slots: number; readonly observedAt: number };
   readonly runnerJobs?: { readonly count: number; readonly observedAt: number };
+  readonly attestation?: Attestation;
 };
 
 export interface HostInfo {
@@ -138,8 +178,10 @@ export function parseSample(value: unknown): Sample {
     slotsAt > 0
       ? { runnerCapacity: { slots, observedAt: slotsAt } }
       : {};
+  const attestation = parseAttestation(r["attestation"]);
   const sample: Sample = {
     ...(out as Sample),
+    ...(attestation === undefined ? {} : { attestation }),
     ...(diag === undefined ? {} : { diagnostics: diag }),
     ...capacity,
   };

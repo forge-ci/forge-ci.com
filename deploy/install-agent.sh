@@ -7,6 +7,8 @@
 # /var/lib/forge-metrics/token (0600, root) on the host, and never echoed.
 # The agent runs as a docker container: python:3.12-alpine, --network host so
 # /proc/net/dev shows the host's interfaces, read-only root, no capabilities.
+# --pid host lets it see soldr paired-worker attestation processes in /proc
+# (read-only: no capabilities, so it cannot signal or trace them).
 # Idempotent: re-running replaces the script and restarts the container.
 set -eu
 
@@ -47,7 +49,7 @@ token=$(cat)
   # shellcheck disable=SC2086
   docker run -d --name forge-metrics-agent \
     --restart unless-stopped \
-    --network host \
+    --network host --pid host \
     --read-only --cap-drop ALL --security-opt no-new-privileges \
     --memory 64m --cpus 0.2 --pids-limit 32 \
     \$logopts \$runner_mount \

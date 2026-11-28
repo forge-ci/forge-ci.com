@@ -12,6 +12,9 @@ Environment:
   FORGE_INTERVAL_S         seconds between samples (default 5)
   FORGE_PROC_ROOT          /proc mount (default /proc)
   FORGE_SYS_NET            sysfs net dir used to tell physical NICs (default /sys/class/net)
+
+Attestation work (soldr paired-worker requests) is read from the process tree,
+which needs the host PID namespace: run the container with ``--pid host``.
 """
 
 from __future__ import annotations
@@ -165,9 +168,15 @@ def rate(new: int, old: int, seconds: float) -> float:
 
 @final
 class Proc:
-    def __init__(self, root: Path, sys_net: Path | None = None) -> None:
+    def __init__(
+        self,
+        root: Path,
+        sys_net: Path | None = None,
+        attestations: AttestationScanner | None = None,
+    ) -> None:
         self.root = root
         self.sys_net = sys_net
+        self.attestations = attestations
 
     def read(self, name: str) -> str:
         return (self.root / name).read_text(encoding="ascii", errors="replace")
@@ -246,6 +255,12 @@ class Proc:
             "uptime_s": float(self.read("uptime").split()[0]),
             "diagnostics": self.diagnostics(cur, prev),
         }
+        if self.attestations is not None:
+            attestation = self.attestations.scan(
+                cpu_span, cast("float", values["uptime_s"]), time.time()
+            )
+            if attestation is not None:
+                values["attestation"] = attestation
         return values, cur
 
 
@@ -297,6 +312,172 @@ def current_runner_jobs(directory: Path, now: float) -> dict[str, float | int]:
     return values
 
 
+ATTESTATION_MARK = "worker-attestation"
+PAIRED_WORKER_MARK = "/forge-ci-paired-worker-"
+MAX_ATTESTATION_REQUESTS = 16
+MAX_COMMAND_CHARS = 160
+CRATE_FLAG = re.compile(r"(?:^|\s)(?:-p|--package)[ =]([A-Za-z0-9_-]{1,64})")
+
+
+@dataclass(frozen=True)
+class Task:
+    """One process from ``/proc/<pid>/stat``."""
+
+    pid: int
+    ppid: int
+    comm: str
+    ticks: int  # utime + stime
+    start: int  # clock ticks after boot
+
+
+def parse_task(pid: int, stat: str) -> Task | None:
+    """Parse ``/proc/<pid>/stat``; ``comm`` may contain spaces and parentheses."""
+    left, right = stat.find("("), stat.rfind(")")
+    if left < 0 or right < left:
+        return None
+    rest = stat[right + 2 :].split()
+    if len(rest) < 20:  # noqa: PLR2004 - starttime is field 22
+        return None
+    try:
+        return Task(
+            pid, int(rest[1]), stat[left + 1 : right], int(rest[11]) + int(rest[12]), int(rest[19])
+        )
+    except ValueError:
+        return None
+
+
+def is_attestation_server(argv: list[str]) -> bool:
+    """A paired worker's ``soldr remote serve`` (the attestation entry point)."""
+    return bool(argv) and ATTESTATION_MARK in argv[0] and "remote" in argv and "serve" in argv
+
+
+def short_command(argv: list[str]) -> str:
+    """``/long/path/soldr cargo clippy -p clud`` -> ``soldr cargo clippy -p clud``."""
+    if not argv:
+        return ""
+    text = " ".join([argv[0].rsplit("/", 1)[-1], *argv[1:]])
+    return text if len(text) <= MAX_COMMAND_CHARS else text[: MAX_COMMAND_CHARS - 1] + "\u2026"
+
+
+def subtree(task: Task, children: dict[int, list[Task]]) -> list[Task]:
+    out: list[Task] = []
+    stack = [task]
+    while stack:
+        node = stack.pop()
+        out.append(node)
+        stack.extend(children.get(node.pid, []))
+    return out
+
+
+def share(ticks: int, span: int) -> float:
+    """Ticks as a percent of host-wide CPU time over ``span`` ticks."""
+    return round(min(100.0, 100.0 * ticks / span), 2) if span > 0 else 0.0
+
+
+@final
+class AttestationScanner:
+    """Find paired-worker attestation requests in the host process tree.
+
+    Needs the host PID namespace (``docker run --pid host``). A request is a
+    live direct child of a ``worker-attestation`` ``soldr remote serve``; its
+    CPU is its whole subtree. Compiles the shared soldr-daemon runs for a
+    paired worker (their argv mentions the worker directory) count toward the
+    attestation total too, since they are work the requests caused.
+    """
+
+    def __init__(self, root: Path, hz: int = 100) -> None:
+        self.root = root
+        self.hz = hz
+        self.prev: dict[tuple[int, int], int] = {}
+
+    def argv(self, pid: int) -> list[str]:
+        try:
+            raw = (self.root / str(pid) / "cmdline").read_bytes()
+        except OSError:
+            return []
+        return [part.decode("utf-8", "replace") for part in raw.split(b"\0") if part]
+
+    def tasks(self) -> dict[int, Task]:
+        tasks: dict[int, Task] = {}
+        try:
+            entries = [e for e in self.root.iterdir() if e.name.isdigit()]
+        except OSError:
+            return tasks
+        for entry in entries:
+            try:
+                stat = (entry / "stat").read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            task = parse_task(int(entry.name), stat)
+            if task is not None:
+                tasks[task.pid] = task
+        return tasks
+
+    def delta(self, task: Task) -> int:
+        """CPU ticks since the previous scan; a process first seen now counts 0."""
+        old = self.prev.get((task.pid, task.start))
+        return 0 if old is None else max(0, task.ticks - old)
+
+    def request(self, top: Task, tree: list[Task], uptime_s: float, span: int) -> dict[str, object]:
+        command = short_command(self.argv(top.pid))
+        crate = CRATE_FLAG.search(command)
+        return {
+            "command": command,
+            "crate": crate.group(1) if crate else None,
+            "elapsed_s": round(max(0.0, uptime_s - top.start / self.hz), 1),
+            "cpu_pct": share(sum(self.delta(t) for t in tree), span),
+        }
+
+    def daemon_compiles(self, tasks: dict[int, Task], children: dict[int, list[Task]]) -> set[int]:
+        """Processes under a soldr-daemon whose argv names a paired worker."""
+        found: set[int] = set()
+        for daemon in (t for t in tasks.values() if t.comm.startswith("soldr-daemon")):
+            for task in subtree(daemon, children)[1:]:
+                if any(
+                    PAIRED_WORKER_MARK in a or ATTESTATION_MARK in a for a in self.argv(task.pid)
+                ):
+                    found.add(task.pid)
+        return found
+
+    def scan(self, cpu_span: int, uptime_s: float, now: float) -> dict[str, object] | None:
+        """Snapshot, or ``None`` when this host runs no attestation server.
+
+        ``cpu_span`` is the host-wide CPU tick delta since the previous scan,
+        so CPU percentages share the scale of ``cpu_pct``.
+        """
+        tasks = self.tasks()
+        children: dict[int, list[Task]] = {}
+        for task in tasks.values():
+            children.setdefault(task.ppid, []).append(task)
+        servers = [
+            t
+            for t in tasks.values()
+            if t.comm.startswith("soldr") and is_attestation_server(self.argv(t.pid))
+        ]
+        if not servers:
+            self.prev = {}
+            return None
+        counted = {s.pid for s in servers} | self.daemon_compiles(tasks, children)
+        requests: list[dict[str, object]] = []
+        for server in servers:
+            for top in children.get(server.pid, []):
+                # Zombies have no argv; the broker is plumbing, not a request.
+                if top.comm.startswith("soldr-broker") or not self.argv(top.pid):
+                    continue
+                tree = subtree(top, children)
+                counted.update(t.pid for t in tree)
+                requests.append(self.request(top, tree, uptime_s, cpu_span))
+        total = sum(self.delta(tasks[pid]) for pid in counted)
+        self.prev = {(t.pid, t.start): t.ticks for t in tasks.values()}
+        requests.sort(key=lambda r: cast("float", r["elapsed_s"]), reverse=True)
+        return {
+            "running": len(requests),
+            "cpu_pct": share(total, cpu_span),
+            "requests": requests[:MAX_ATTESTATION_REQUESTS],
+            "observed_at": now,
+        }
+
+
 def post(url: str, token: str, values: dict[str, object]) -> int:
     parts = urllib.parse.urlsplit(url)
     if parts.scheme != "https" or not parts.hostname:
@@ -336,6 +517,7 @@ def main() -> int:
     proc = Proc(
         Path(os.environ.get("FORGE_PROC_ROOT", "/proc")),
         Path(os.environ.get("FORGE_SYS_NET", "/sys/class/net")),
+        AttestationScanner(Path(os.environ.get("FORGE_PROC_ROOT", "/proc"))),
     )
 
     prev, _ = proc.counters()

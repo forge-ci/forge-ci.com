@@ -14,6 +14,9 @@ Environment:
   FORGE_INTERVAL_S         seconds between samples (default 5)
   FORGE_PROC_ROOT          /proc mount (default /proc)
   FORGE_SYS_NET            sysfs net dir used to tell physical NICs (default /sys/class/net)
+  FORGE_SYS_ROOT           sysfs root for the static hardware block (default /sys)
+  FORGE_DISK_LABELS        host /dev/disk/by-label, mounted read-only
+                           (default /run/forge-host/disk-by-label)
 
 Attestation work (soldr paired-worker requests) is read from the process tree,
 which needs the host PID namespace: run the container with ``--pid host``.
@@ -30,7 +33,7 @@ import re
 import sys
 import time
 import urllib.parse
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import cast, final
 
@@ -480,6 +483,230 @@ class AttestationScanner:
         }
 
 
+HARDWARE_EVERY_S = 300.0
+BTRFS_PROFILES = (
+    "raid1c4",
+    "raid1c3",
+    "raid10",
+    "raid1",
+    "raid0",
+    "raid5",
+    "raid6",
+    "dup",
+    "single",
+)
+MAX_MOUNTS_PER_DISK = 8
+MIN_DISK_BYTES = 64 << 20  # cloud config drives (a few hundred KB) are not storage
+
+
+@dataclass(frozen=True)
+class CpuInfo:
+    model: str
+    sockets: int
+    cores: int  # physical cores, all sockets
+    threads: int  # logical CPUs
+
+
+@dataclass(frozen=True)
+class BlockDevice:
+    name: str
+    model: str
+    size_bytes: int
+    kind: str  # "nvme" | "ssd" | "hdd" | "virtual"
+    labels: tuple[str, ...]
+    mounts: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class Filesystem:
+    type: str
+    label: str
+    profile: str
+    disks: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class Hardware:
+    """Static description of the machine; sent every few minutes, not every sample."""
+
+    cpu: CpuInfo
+    mem_total_bytes: int
+    disks: tuple[BlockDevice, ...]
+    filesystems: tuple[Filesystem, ...]
+
+    def to_wire(self) -> dict[str, object]:
+        return {
+            "cpu": asdict(self.cpu),
+            "mem_total_bytes": self.mem_total_bytes,
+            "disks": [
+                {**asdict(d), "labels": list(d.labels), "mounts": list(d.mounts)}
+                for d in self.disks
+            ],
+            "filesystems": [{**asdict(f), "disks": list(f.disks)} for f in self.filesystems],
+        }
+
+
+def parse_cpuinfo(text: str) -> CpuInfo:
+    threads = 0
+    model = ""
+    sockets: set[str] = set()
+    cores: set[tuple[str, str]] = set()
+    for block in re.split(r"\n\s*\n", text):
+        fields: dict[str, str] = {}
+        for line in block.splitlines():
+            key, sep, value = line.partition(":")
+            if sep:
+                fields[key.strip()] = value.strip()
+        if "processor" not in fields:
+            continue
+        threads += 1
+        model = model or fields.get("model name", fields.get("Processor", ""))
+        socket = fields.get("physical id", "0")
+        sockets.add(socket)
+        if "core id" in fields:
+            cores.add((socket, fields["core id"]))
+    return CpuInfo(model[:120], max(1, len(sockets)), len(cores) or threads, max(1, threads))
+
+
+def _read(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return ""
+
+
+def _parents(sys_block: Path) -> dict[str, str]:
+    """Map every whole disk and its partitions to the whole disk's name."""
+    out: dict[str, str] = {}
+    with contextlib.suppress(OSError):
+        for disk in sys_block.iterdir():
+            if not WHOLE_DISK.fullmatch(disk.name):
+                continue
+            out[disk.name] = disk.name
+            with contextlib.suppress(OSError):
+                for child in disk.iterdir():
+                    if (child / "partition").exists():
+                        out[child.name] = disk.name
+    return out
+
+
+def _labels(labels_dir: Path, parents: dict[str, str]) -> dict[str, list[str]]:
+    out: dict[str, list[str]] = {}
+    with contextlib.suppress(OSError):
+        for link in sorted(labels_dir.iterdir()):
+            with contextlib.suppress(OSError):
+                disk = parents.get(link.readlink().name)
+                if disk is not None:
+                    out.setdefault(disk, []).append(link.name[:64])
+    return out
+
+
+def _mounts(proc_root: Path, parents: dict[str, str]) -> dict[str, set[str]]:
+    text = _read(proc_root / "1" / "mounts") or _read(proc_root / "mounts")
+    out: dict[str, set[str]] = {}
+    for line in text.splitlines():
+        fields = line.split()
+        if len(fields) >= 2 and fields[0].startswith("/dev/"):  # noqa: PLR2004
+            disk = parents.get(fields[0].removeprefix("/dev/"))
+            if disk is not None:
+                out.setdefault(disk, set()).add(fields[1].replace("\\040", " ")[:128])
+    return out
+
+
+def _kind(name: str, rotational: str) -> str:
+    if name.startswith("nvme"):
+        return "nvme"
+    if name.startswith(("vd", "xvd")):
+        return "virtual"
+    return "hdd" if rotational == "1" else "ssd"
+
+
+def _btrfs(sys_root: Path, parents: dict[str, str]) -> list[Filesystem]:
+    out: list[Filesystem] = []
+    with contextlib.suppress(OSError):
+        for fs in sorted((sys_root / "fs" / "btrfs").iterdir()):
+            devices = fs / "devices"
+            if not devices.is_dir():
+                continue
+            with contextlib.suppress(OSError):
+                disks = sorted({parents[d.name] for d in devices.iterdir() if d.name in parents})
+                if not disks:
+                    continue  # loop-backed images are not hardware
+                data = fs / "allocation" / "data"
+                profile = next((p for p in BTRFS_PROFILES if (data / p).is_dir()), "")
+                out.append(Filesystem("btrfs", _read(fs / "label")[:64], profile, tuple(disks)))
+    return out
+
+
+def collect_hardware(proc_root: Path, sys_root: Path, labels_dir: Path) -> Hardware:
+    """CPU, memory and physical disks from /proc and sysfs (loop, zram and dm skipped)."""
+    sys_block = sys_root / "block"
+    parents = _parents(sys_block)
+    labels = _labels(labels_dir, parents)
+    mounts = _mounts(proc_root, parents)
+    disks: list[BlockDevice] = []
+    for name in sorted(set(parents.values())):
+        base = sys_block / name
+        try:
+            size = int(_read(base / "size") or "0") * SECTOR_BYTES
+        except ValueError:
+            size = 0
+        if size < MIN_DISK_BYTES:
+            continue
+        disks.append(
+            BlockDevice(
+                name,
+                _read(base / "device" / "model")[:64],
+                size,
+                _kind(name, _read(base / "queue" / "rotational")),
+                tuple(labels.get(name, [])),
+                tuple(sorted(mounts.get(name, set()))[:MAX_MOUNTS_PER_DISK]),
+            )
+        )
+    return Hardware(
+        parse_cpuinfo(_read(proc_root / "cpuinfo")),
+        parse_meminfo(_read(proc_root / "meminfo")).get("MemTotal", 0),
+        tuple(disks[:16]),
+        tuple(_btrfs(sys_root, parents)[:8]),
+    )
+
+
+@final
+class HardwareReporter:
+    """Decides when the static hardware block rides along with a sample."""
+
+    def __init__(
+        self, proc_root: Path, sys_root: Path, labels_dir: Path, every_s: float = HARDWARE_EVERY_S
+    ) -> None:
+        self.paths = (proc_root, sys_root, labels_dir)
+        self.every_s = every_s
+        self.last_sent: float | None = None
+        self.pending = False
+
+    def due(self, now: float) -> dict[str, object] | None:
+        """The hardware block when it should ride along with this sample."""
+        self.pending = False
+        if self.last_sent is not None and now - self.last_sent < self.every_s:
+            return None
+        try:
+            wire = collect_hardware(*self.paths).to_wire()
+        except (OSError, ValueError):
+            return None
+        self.pending = True
+        return wire
+
+    def attach(self, values: dict[str, object], now: float) -> None:
+        wire = self.due(now)
+        if wire is not None:
+            values["hardware"] = wire
+
+    def sent(self, now: float) -> None:
+        """The last sample was accepted; if it carried hardware, wait before resending."""
+        if self.pending:
+            self.last_sent = now
+            self.pending = False
+
+
 def read_host_id(path: Path) -> str | None:
     """This host's own identity: the host's /etc/hostname, mounted read-only."""
     try:
@@ -545,6 +772,11 @@ def main() -> int:
         Path(os.environ.get("FORGE_SYS_NET", "/sys/class/net")),
         AttestationScanner(Path(os.environ.get("FORGE_PROC_ROOT", "/proc"))),
     )
+    hardware = HardwareReporter(
+        Path(os.environ.get("FORGE_PROC_ROOT", "/proc")),
+        Path(os.environ.get("FORGE_SYS_ROOT", "/sys")),
+        Path(os.environ.get("FORGE_DISK_LABELS", "/run/forge-host/disk-by-label")),
+    )
 
     prev, _ = proc.counters()
     backoff = interval
@@ -554,6 +786,7 @@ def main() -> int:
         time.sleep(backoff)
         values, prev = proc.sample(prev)
         values.update(current_runner_jobs(Path("/run/forge"), time.time()))
+        hardware.attach(values, time.monotonic())
         try:
             code = post(url, token, values, host)
         except (OSError, http.client.HTTPException):
@@ -564,6 +797,7 @@ def main() -> int:
             failing = True
             backoff = MAX_BACKOFF_S
         elif 200 <= code < 300:  # noqa: PLR2004
+            hardware.sent(time.monotonic())
             if failing:
                 log("ingest recovered")
             failing = False

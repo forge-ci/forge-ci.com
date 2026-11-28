@@ -16,6 +16,7 @@ import { mountTabs } from "./dashboard-tabs";
 import { DeviceChart } from "./device-chart";
 import { duration, gib, pct, rate, rateTicks, ratio } from "./format";
 import { mountGitOps } from "./git-ops";
+import { type Hardware, hardwareDetail, hardwareSummary } from "./hardware";
 import { morph, UpdateGate } from "./live-dom";
 
 const KEEP_S = 2 * 60 * 60;
@@ -131,6 +132,7 @@ function updateRunnerSample(host: string, sample: Sample): void {
 
 const samples = new Map<string, Sample[]>();
 let hosts: HostInfo[] = [];
+const hardware = new Map<string, Hardware>();
 let windowSeconds: number = WINDOWS[1].seconds;
 let clockOffset = 0; // server time minus browser time, in seconds
 let connected = false;
@@ -342,6 +344,25 @@ function tile(label: string, value: string, detail?: string): HTMLElement {
   return t;
 }
 
+const HARDWARE_REFRESH_MS = 60_000;
+
+/** One-line machine summary; the full model strings and disk roles show on hover. */
+function hardwareLine(id: string): HTMLElement {
+  const hw = hardware.get(id);
+  if (hw === undefined) return el("p", "host-hw host-hw-missing", "Hardware not reported yet");
+  const line = el("p", "host-hw", hardwareSummary(hw));
+  line.title = hardwareDetail(hw).join("\n");
+  return line;
+}
+
+function hardwareList(id: string): HTMLElement | undefined {
+  const hw = hardware.get(id);
+  if (hw === undefined) return undefined;
+  const list = el("ul", "host-hw-detail");
+  for (const line of hardwareDetail(hw)) list.append(el("li", undefined, line));
+  return list;
+}
+
 function renderHosts(now: number): void {
   const cards = hosts.map((h, i) => {
     const card = el("article", "host-card");
@@ -357,7 +378,9 @@ function renderHosts(now: number): void {
       el("span", undefined, status.text),
     );
     head.append(name, pill);
-    card.append(head, el("p", "host-role", `${h.role} · ${h.location}`));
+    card.append(head, el("p", "host-role", `${h.role} · ${h.location}`), hardwareLine(h.id));
+    const detail = hardwareList(h.id);
+    if (detail !== undefined) card.append(detail);
 
     const s = samples.get(h.id)?.at(-1);
     const tiles = el("div", "tiles");
@@ -427,13 +450,14 @@ function attestationOf(sample: Sample | undefined, now: number): Attestation | u
 
 /** One host: CI build load and attestation work side by side. */
 function hostLoad(
+  id: string,
   label: string,
   ci: string,
   detail: string | undefined,
   attestation: Attestation | undefined,
 ): HTMLElement {
   const row = el("div", "host-load");
-  row.append(el("h3", "host-load-name", label));
+  row.append(el("h3", "host-load-name", label), hardwareLine(id));
   const pair = el("div", "host-load-pair");
   pair.append(
     tile("CI build load", ci, detail),
@@ -500,7 +524,13 @@ function renderRunnerJobs(now: number): void {
         ? undefined
         : `CPU ${pct(live.cpu_pct)}${split} · Load ${ratio(live.load1 / live.cpu_count)} per CPU`;
     tiles.append(
-      hostLoad(host.label, count, detail, attestationOf(runnerSamples.get(host.id) ?? live, now)),
+      hostLoad(
+        host.id,
+        host.label,
+        count,
+        detail,
+        attestationOf(runnerSamples.get(host.id) ?? live, now),
+      ),
     );
   }
   morph(
@@ -597,18 +627,19 @@ function reportError(error: unknown): void {
   console.error("forge-ci dashboard:", error);
 }
 
+function applyStatus({ host, latest, hardware: hw }: HostStatus): void {
+  if (latest !== null) updateRunnerSample(host.id, latest);
+  if (hw !== undefined) hardware.set(host.id, hw);
+}
+
 async function refreshRunnerJobs(): Promise<void> {
-  for (const { host, latest } of await fetchHosts()) {
-    if (latest !== null) updateRunnerSample(host.id, latest);
-  }
+  for (const status of await fetchHosts()) applyStatus(status);
 }
 
 async function main(): Promise<void> {
   const statuses: HostStatus[] = await fetchHosts();
   hosts = statuses.map((s) => s.host);
-  for (const { host, latest } of statuses) {
-    if (latest !== null) updateRunnerSample(host.id, latest);
-  }
+  for (const status of statuses) applyStatus(status);
   buildShell();
   buildCharts();
   await loadHistory();
@@ -622,6 +653,10 @@ async function main(): Promise<void> {
     else renderFreshness();
   }, TEXT_TICK_MS);
   setInterval(renderFreshness, 1000);
+  // Hardware is static and not streamed; pick it up when an agent first reports it.
+  setInterval(() => {
+    refreshRunnerJobs().catch(reportError);
+  }, HARDWARE_REFRESH_MS);
   document.addEventListener("visibilitychange", () => {
     if (live()) redraw();
   });

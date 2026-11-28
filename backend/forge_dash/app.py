@@ -179,7 +179,9 @@ class Dashboard:
         previous = self.store.latest(host_id)
         if previous is not None and now - previous.ts < self.settings.min_interval_s:
             raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "sampling too fast")
-        sample = Sample.model_validate({**values.model_dump(), "ts": now})
+        if values.hardware is not None:
+            self.store.set_hardware(host_id, values.hardware)
+        sample = Sample.model_validate({**values.model_dump(exclude={"hardware"}), "ts": now})
         self.store.add(host_id, sample)
         self.store.publish(f'{{"host":"{host_id}","sample":{sample.model_dump_json()}}}')
         return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -191,7 +193,15 @@ class Dashboard:
             latest = self.store.latest(host.id)
             last_seen = latest.ts if latest else None
             online = last_seen is not None and now - last_seen <= self.settings.online_after_s
-            out.append(HostStatus(host=host, online=online, last_seen=last_seen, latest=latest))
+            out.append(
+                HostStatus(
+                    host=host,
+                    online=online,
+                    last_seen=last_seen,
+                    latest=latest,
+                    hardware=self.store.hardware(host.id),
+                )
+            )
         return out
 
     async def history(

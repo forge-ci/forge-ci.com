@@ -11,7 +11,7 @@ import contextlib
 from collections import deque
 from typing import TYPE_CHECKING, final
 
-from forge_dash.models import METRIC_FIELDS, Sample, SeriesColumns
+from forge_dash.models import METRIC_FIELDS, HostHardware, Sample, SeriesColumns
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -24,6 +24,7 @@ class MetricsStore:
     def __init__(self, host_ids: Iterable[str], retention_s: float) -> None:
         self._retention_s = retention_s
         self._samples: dict[str, deque[Sample]] = {h: deque() for h in host_ids}
+        self._hardware: dict[str, HostHardware] = {}
         self._subscribers: set[asyncio.Queue[str]] = set()
 
     def knows(self, host_id: str) -> bool:
@@ -32,6 +33,12 @@ class MetricsStore:
     def latest(self, host_id: str) -> Sample | None:
         samples = self._samples[host_id]
         return samples[-1] if samples else None
+
+    def hardware(self, host_id: str) -> HostHardware | None:
+        return self._hardware.get(host_id)
+
+    def set_hardware(self, host_id: str, hardware: HostHardware) -> None:
+        self._hardware[host_id] = hardware
 
     def add(self, host_id: str, sample: Sample) -> None:
         samples = self._samples[host_id]

@@ -1,6 +1,8 @@
 // Typed access to the backend. Every response is parsed from `unknown`, so a
 // malformed payload fails loudly here instead of drawing nonsense.
 
+import { type Hardware, parseHardware } from "./hardware";
+
 export const METRIC_FIELDS = [
   "cpu_pct",
   "cpu_count",
@@ -120,6 +122,7 @@ export interface HostStatus {
   readonly online: boolean;
   readonly lastSeen: number | null;
   readonly latest: Sample | null;
+  readonly hardware?: Hardware;
 }
 
 export interface History {
@@ -208,6 +211,11 @@ function parseHostInfo(value: unknown): HostInfo {
   };
 }
 
+function hardwareOf(value: unknown): { hardware?: Hardware } {
+  const hardware = parseHardware(value);
+  return hardware === undefined ? {} : { hardware };
+}
+
 export function parseHosts(value: unknown): HostStatus[] {
   if (!Array.isArray(value)) throw new PayloadError("hosts: expected an array");
   return value.map((item: unknown) => {
@@ -217,6 +225,7 @@ export function parseHosts(value: unknown): HostStatus[] {
       online: r["online"] === true,
       lastSeen: r["last_seen"] === null ? null : num(r["last_seen"], "last_seen"),
       latest: r["latest"] === null ? null : parseSample(r["latest"]),
+      ...hardwareOf(r["hardware"]),
     };
   });
 }

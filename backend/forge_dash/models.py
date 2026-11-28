@@ -52,6 +52,28 @@ class Diagnostics(BaseModel):
     devices: dict[DeviceName, DiskDiagnostics] = Field(default_factory=dict, max_length=16)
 
 
+class AttestationRequest(BaseModel):
+    """One soldr paired-worker request (e.g. ``soldr cargo clippy -p clud``) running on a host."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
+
+    command: str = Field(max_length=200)
+    crate: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,64}$")
+    elapsed_s: Nonnegative
+    cpu_pct: Percent
+
+
+class Attestation(BaseModel):
+    """Attestation work on a host: requests under ``worker-attestation`` soldr servers."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
+
+    running: int = Field(ge=0, le=4096)
+    cpu_pct: Percent
+    requests: list[AttestationRequest] = Field(default_factory=list, max_length=16)
+    observed_at: float = Field(gt=0, allow_inf_nan=False)
+
+
 class IngestSample(BaseModel):
     """One utilization sample as an agent posts it. The server stamps the time."""
 
@@ -78,6 +100,7 @@ class IngestSample(BaseModel):
     )
     gh_jobs_running: int | None = Field(default=None, strict=True, ge=0, le=2**53 - 1)
     gh_jobs_updated_at: float | None = Field(default=None, strict=True, gt=0, allow_inf_nan=False)
+    attestation: Attestation | None = None
 
 
 class Sample(IngestSample):

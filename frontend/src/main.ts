@@ -1,6 +1,7 @@
 import "./style.css";
 
 import {
+  type Attestation,
   fetchHistory,
   fetchHosts,
   parseSampleEvent,
@@ -416,6 +417,49 @@ function renderConnection(): void {
   );
 }
 
+const ATTESTATION_AFTER_S = 30;
+const MAX_LISTED_REQUESTS = 6;
+
+function attestationOf(sample: Sample | undefined, now: number): Attestation | undefined {
+  const a = sample?.attestation;
+  return a !== undefined && now - a.observedAt <= ATTESTATION_AFTER_S ? a : undefined;
+}
+
+/** One host: CI build load and attestation work side by side. */
+function hostLoad(
+  label: string,
+  ci: string,
+  detail: string | undefined,
+  attestation: Attestation | undefined,
+): HTMLElement {
+  const row = el("div", "host-load");
+  row.append(el("h3", "host-load-name", label));
+  const pair = el("div", "host-load-pair");
+  pair.append(
+    tile("CI build load", ci, detail),
+    tile(
+      "Attestations",
+      attestation === undefined ? "None" : String(attestation.running),
+      attestation === undefined
+        ? "No paired worker reporting"
+        : `CPU ${pct(attestation.cpuPct)} of host`,
+    ),
+  );
+  row.append(pair);
+  const list = el("ul", "attestation-requests");
+  for (const request of attestation?.requests.slice(0, MAX_LISTED_REQUESTS) ?? []) {
+    const item = el("li");
+    item.append(
+      el("span", "request-crate", request.crate ?? "—"),
+      el("code", "request-command", request.command),
+      el("span", "request-meta", `${duration(request.elapsedS)} · CPU ${pct(request.cpuPct)}`),
+    );
+    list.append(item);
+  }
+  if (list.childElementCount > 0) row.append(list);
+  return row;
+}
+
 function renderRunnerJobs(now: number): void {
   const counts = runnerHosts.map((host) => {
     const jobs = runnerSamples.get(host)?.runnerJobs;
@@ -430,7 +474,7 @@ function renderRunnerJobs(now: number): void {
       : reported.length === runnerHosts.length
         ? String(total)
         : `${String(total)} (partial, ${String(reported.length)} of ${String(runnerHosts.length)} hosts)`;
-  const tiles = el("div", "tiles");
+  const tiles = el("div", "host-loads");
   for (const host of hosts) {
     const index = runnerHosts.indexOf(host.id);
     const capacity = runnerSamples.get(host.id)?.runnerCapacity;
@@ -445,11 +489,19 @@ function renderRunnerJobs(now: number): void {
           ? String(running ?? "Unavailable")
           : `${String(running ?? "—")} / ${String(slots)}`;
     const sample = samples.get(host.id)?.at(-1);
+    const live = sample !== undefined && now - sample.ts <= ONLINE_AFTER_S ? sample : undefined;
+    const counters = live?.diagnostics?.counters;
+    const split =
+      counters?.cpu_on_pct !== undefined && counters.cpu_iowait_pct !== undefined
+        ? ` (busy ${pct(counters.cpu_on_pct)} · iowait ${pct(counters.cpu_iowait_pct)})`
+        : "";
     const detail =
-      sample !== undefined && now - sample.ts <= ONLINE_AFTER_S
-        ? `CPU ${pct(sample.cpu_pct)} · Load ${ratio(sample.load1 / sample.cpu_count)} per CPU`
-        : undefined;
-    tiles.append(tile(host.label, count, detail));
+      live === undefined
+        ? undefined
+        : `CPU ${pct(live.cpu_pct)}${split} · Load ${ratio(live.load1 / live.cpu_count)} per CPU`;
+    tiles.append(
+      hostLoad(host.label, count, detail, attestationOf(runnerSamples.get(host.id) ?? live, now)),
+    );
   }
   morph(
     runnerSummary,
@@ -457,7 +509,7 @@ function renderRunnerJobs(now: number): void {
     el(
       "p",
       "chart-desc",
-      "Running jobs / configured slots. Pool reservations and routing can reduce availability.",
+      "CI build load is running jobs / configured slots; pool reservations and routing can reduce availability. Attestations are soldr paired-worker requests (e.g. cargo clippy for a crate) running on the same host, with their share of host CPU.",
     ),
     tiles,
   );

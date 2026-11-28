@@ -17,6 +17,7 @@ import { DeviceChart } from "./device-chart";
 import { duration, gib, pct, rate, rateTicks, ratio } from "./format";
 import { mountGitOps } from "./git-ops";
 import { type Hardware, hardwareDetail, hardwareSummary } from "./hardware";
+import { laneBreakdown, type RunnerLane } from "./lanes";
 import { morph, UpdateGate } from "./live-dom";
 
 const KEEP_S = 2 * 60 * 60;
@@ -455,6 +456,7 @@ function hostLoad(
   ci: string,
   detail: string | undefined,
   attestation: Attestation | undefined,
+  lanes?: string,
 ): HTMLElement {
   const row = el("div", "host-load");
   row.append(el("h3", "host-load-name", label), hardwareLine(id));
@@ -470,6 +472,12 @@ function hostLoad(
     ),
   );
   row.append(pair);
+  if (lanes !== undefined) {
+    const line = el("p", "host-lanes", lanes);
+    line.title =
+      "Busy / max slots per dispatcher lane, from the running dispatcher's config. Host capacity is min(cap, sum of lane max).";
+    row.append(line);
+  }
   const list = el("ul", "attestation-requests");
   for (const request of attestation?.requests.slice(0, MAX_LISTED_REQUESTS) ?? []) {
     const item = el("li");
@@ -523,6 +531,12 @@ function renderRunnerJobs(now: number): void {
       live === undefined
         ? undefined
         : `CPU ${pct(live.cpu_pct)}${split} · Load ${ratio(live.load1 / live.cpu_count)} per CPU`;
+    const reportedLanes: readonly RunnerLane[] | undefined = (runnerSamples.get(host.id) ?? live)
+      ?.runnerLanes;
+    const lanes =
+      reportedLanes === undefined || reportedLanes.length === 0
+        ? undefined
+        : laneBreakdown(reportedLanes, running, slots);
     tiles.append(
       hostLoad(
         host.id,
@@ -530,6 +544,7 @@ function renderRunnerJobs(now: number): void {
         count,
         detail,
         attestationOf(runnerSamples.get(host.id) ?? live, now),
+        lanes,
       ),
     );
   }

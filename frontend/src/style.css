@@ -167,6 +167,14 @@ h2 {
   cursor: help;
 }
 
+.host-lanes {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: help;
+}
+
 .host-hw-missing {
   color: var(--text-muted);
   cursor: default;

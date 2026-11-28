@@ -1,5 +1,7 @@
 #!/bin/sh
 # Install the Docker-independent job observer on a NixOS runner host.
+# Writes /run/forge/runner-workers.json (total jobs) and runner-lanes.json
+# (per-lane max/busy and the dispatcher cap; the agent reports min(cap, sum max)).
 set -eu
 
 target=${1:?runner SSH target}
@@ -21,6 +23,27 @@ temp=$(mktemp /run/forge/.runner-workers.XXXXXX)
 printf '{"gh_jobs_running":%s,"updated_at":%s}\n' "$count" "$observed" > "$temp"
 chmod 0644 "$temp"
 mv -T "$temp" /run/forge/runner-workers.json
+# Per-lane capacity: max from the config the running dispatcher uses, busy =
+# Runner.Worker processes in each lane's cgroup slice (dyn-<lane>-N containers).
+# The RUNNING dispatcher's config: a runtime override may differ from the Nix one.
+config=$(systemctl show -p ExecStart --value pool-dispatcher.service 2>/dev/null \
+  | grep -o -- '--config [^ ;]*' | head -n1 | cut -d' ' -f2 || true)
+if [ -n "$config" ] && [ -r "$config" ]; then
+  slices=''
+  for pid in $(pgrep -x Runner.Worker || true); do
+    s=$(grep -o 'gh-lane-[A-Za-z0-9_]*\.slice' "/proc/$pid/cgroup" 2>/dev/null | tail -n1 || true)
+    slices="$slices $s"
+  done
+  temp=$(mktemp /run/forge/.runner-lanes.XXXXXX)
+  jq -c --argjson now "$observed" --arg slices "$slices" '
+    ($slices | split(" ") | map(select(. != ""))) as $busy
+    | {cap, updated_at: $now, lanes: [.lanes[] | .name as $n
+        | ("gh-lane-" + ($n | gsub("-"; "_")) + ".slice") as $slice
+        | {name: $n, max, busy: ([$busy[] | select(. == $slice)] | length)}]}' \
+    "$config" > "$temp"
+  chmod 0644 "$temp"
+  mv -T "$temp" /run/forge/runner-lanes.json
+fi
 SCRIPT
 chmod 0600 "$observer"
 cat > "$units/forge-runner-workers.service" <<UNIT

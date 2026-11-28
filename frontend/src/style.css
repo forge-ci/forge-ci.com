@@ -160,6 +160,25 @@ h2 {
   font-size: 12px;
 }
 
+.host-hw {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  cursor: help;
+}
+
+.host-hw-missing {
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.host-hw-detail {
+  margin: -6px 0 12px;
+  padding-left: 18px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
 .tiles {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

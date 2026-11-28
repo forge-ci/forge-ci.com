@@ -22,6 +22,9 @@
 # /proc/net/dev shows the host's interfaces, read-only root, no capabilities.
 # --pid host lets it see soldr paired-worker attestation processes in /proc
 # (read-only: no capabilities, so it cannot signal or trace them).
+# Static hardware (CPU, RAM, disks, btrfs profiles) comes from /proc and the
+# container's default read-only /sys; /dev/disk/by-label is bind-mounted
+# read-only for disk labels.
 # Idempotent: re-running replaces the script and restarts the container.
 set -eu
 
@@ -92,13 +95,19 @@ esac
   if [ -d /run/forge ]; then
     runner_mount='--mount type=bind,src=/run/forge,dst=/run/forge,readonly'
   fi
+  # Filesystem labels (e.g. forge-build) for the static hardware summary; the
+  # symlinks only name devices, so this exposes no device nodes.
+  label_mount=''
+  if [ -d /dev/disk/by-label ]; then
+    label_mount='--mount type=bind,src=/dev/disk/by-label,dst=/run/forge-host/disk-by-label,readonly'
+  fi
   # shellcheck disable=SC2086
   docker run -d --name forge-metrics-agent \
     --restart unless-stopped \
     --network host --pid host \
     --read-only --cap-drop ALL --security-opt no-new-privileges \
     --memory 64m --cpus 0.2 --pids-limit 32 \
-    \$logopts \$runner_mount \
+    \$logopts \$runner_mount \$label_mount \
     -v /var/lib/forge-metrics:/etc/forge-metrics:ro \
     -v /etc/hostname:/etc/forge-host/hostname:ro \
     -e FORGE_INGEST_URL=$url \

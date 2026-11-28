@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, ClassVar
+from typing import Annotated, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -74,6 +74,51 @@ class Attestation(BaseModel):
     observed_at: float = Field(gt=0, allow_inf_nan=False)
 
 
+Short = Annotated[str, Field(max_length=128)]
+
+
+class CpuHardware(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
+
+    model: str = Field(max_length=120)
+    sockets: int = Field(ge=1, le=64)
+    cores: int = Field(ge=1, le=65536)
+    threads: int = Field(ge=1, le=65536)
+
+
+class DiskHardware(BaseModel):
+    """One whole physical disk; ``labels`` are filesystem labels on it or its partitions."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
+
+    name: DeviceName
+    model: str = Field(max_length=64)
+    size_bytes: int = Field(gt=0, le=_MAX_BYTES)
+    kind: Literal["nvme", "ssd", "hdd", "virtual"]
+    labels: list[Short] = Field(default_factory=list, max_length=16)
+    mounts: list[Short] = Field(default_factory=list, max_length=8)
+
+
+class FilesystemHardware(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
+
+    type: Literal["btrfs"]
+    label: str = Field(max_length=64)
+    profile: str = Field(pattern=r"^[a-z0-9]{0,16}$")
+    disks: list[DeviceName] = Field(max_length=16)
+
+
+class HostHardware(BaseModel):
+    """Static machine description an agent sends every few minutes."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
+
+    cpu: CpuHardware
+    mem_total_bytes: int = Field(ge=0, le=_MAX_BYTES)
+    disks: list[DiskHardware] = Field(default_factory=list, max_length=16)
+    filesystems: list[FilesystemHardware] = Field(default_factory=list, max_length=8)
+
+
 class IngestSample(BaseModel):
     """One utilization sample as an agent posts it. The server stamps the time."""
 
@@ -101,6 +146,7 @@ class IngestSample(BaseModel):
     gh_jobs_running: int | None = Field(default=None, strict=True, ge=0, le=2**53 - 1)
     gh_jobs_updated_at: float | None = Field(default=None, strict=True, gt=0, allow_inf_nan=False)
     attestation: Attestation | None = None
+    hardware: HostHardware | None = None
 
 
 class Sample(IngestSample):
@@ -142,6 +188,7 @@ class HostStatus(BaseModel):
     online: bool
     last_seen: float | None
     latest: Sample | None
+    hardware: HostHardware | None = None
 
 
 class SeriesColumns(BaseModel):

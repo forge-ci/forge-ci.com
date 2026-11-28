@@ -100,6 +100,7 @@ def fake_jw22(tmp_path: Path) -> tuple[Path, Path, Path]:
     disk(sys, "sdb", 3907029168, 1, "ST2000NX0253", parts=2)
     disk(sys, "loop0", 34387560, 0, "")
     disk(sys, "zram0", 65797632, 0, "")
+    disk(sys, "vdb", 992, 1, "")  # config drive
     fs = sys / "fs" / "btrfs" / "f7a1ca0e-235e-429a-8e42-da4fd5af5ec1"
     write(fs / "label", "fleet\n")
     for dev in ("sda2", "sdb2"):

@@ -496,6 +496,7 @@ BTRFS_PROFILES = (
     "single",
 )
 MAX_MOUNTS_PER_DISK = 8
+MIN_DISK_BYTES = 64 << 20  # cloud config drives (a few hundred KB) are not storage
 
 
 @dataclass(frozen=True)
@@ -650,7 +651,7 @@ def collect_hardware(proc_root: Path, sys_root: Path, labels_dir: Path) -> Hardw
             size = int(_read(base / "size") or "0") * SECTOR_BYTES
         except ValueError:
             size = 0
-        if size <= 0:
+        if size < MIN_DISK_BYTES:
             continue
         disks.append(
             BlockDevice(

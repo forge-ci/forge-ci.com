@@ -15,8 +15,13 @@ import { mountTabs } from "./dashboard-tabs";
 import { DeviceChart } from "./device-chart";
 import { duration, gib, pct, rate, rateTicks, ratio } from "./format";
 import { mountGitOps } from "./git-ops";
+import { morph, UpdateGate } from "./live-dom";
 
 const KEEP_S = 2 * 60 * 60;
+// Charts are canvases and cheap to redraw; text panels change less often and
+// are patched in place on a slower cadence so they stay readable and copyable.
+const CHART_TICK_MS = 2000;
+const TEXT_TICK_MS = 5000;
 const ONLINE_AFTER_S = 20;
 const CAPACITY_AFTER_S = 5 * 60;
 const WINDOWS = [
@@ -130,6 +135,8 @@ let clockOffset = 0; // server time minus browser time, in seconds
 let connected = false;
 let charts: LiveChart[] = [];
 let deviceChart: DeviceChart | undefined;
+let paused = false;
+let lastRender = 0; // browser ms of the last applied text update
 
 const serverNow = (): number => Date.now() / 1000 + clockOffset;
 
@@ -168,6 +175,9 @@ function requireElement(id: string): HTMLElement {
 
 const root = requireElement("app");
 const connection = el("span", "pill");
+const freshness = el("span", "freshness");
+const pauseButton = el("button", "pause-toggle", "Pause updates");
+const gate = new UpdateGate(root);
 const runnerSummary = el("section", "host-card");
 const hostGrid = el("section", "hosts");
 const chartGrid = el("section", "charts");
@@ -196,7 +206,17 @@ function buildShell(): void {
   const signOut = el("button", undefined, "Sign out");
   signOut.type = "submit";
   logout.append(signOut);
-  actions.append(connection, connect, logout);
+  freshness.setAttribute("aria-live", "off");
+  pauseButton.type = "button";
+  pauseButton.setAttribute("aria-pressed", "false");
+  pauseButton.addEventListener("click", () => {
+    paused = !paused;
+    pauseButton.setAttribute("aria-pressed", String(paused));
+    pauseButton.textContent = paused ? "Resume updates" : "Pause updates";
+    if (!paused) redraw();
+    renderFreshness();
+  });
+  actions.append(freshness, pauseButton, connection, connect, logout);
   header.append(titles, actions);
 
   const controls = el("div", "controls");
@@ -359,7 +379,7 @@ function renderHosts(now: number): void {
     card.append(tiles);
     return card;
   });
-  hostGrid.replaceChildren(...cards);
+  morph(hostGrid, ...cards);
 }
 
 function renderTable(now: number): void {
@@ -384,12 +404,13 @@ function renderTable(now: number): void {
     for (const c of cells) tr.append(el("td", undefined, c));
     return tr;
   });
-  tableBody.replaceChildren(...rows);
+  morph(tableBody, ...rows);
 }
 
 function renderConnection(): void {
   connection.className = `pill ${connected ? "status-live" : "status-stale"}`;
-  connection.replaceChildren(
+  morph(
+    connection,
     el("span", "status-icon", connected ? "●" : "▲"),
     el("span", undefined, connected ? "Streaming" : "Reconnecting…"),
   );
@@ -430,7 +451,8 @@ function renderRunnerJobs(now: number): void {
         : undefined;
     tiles.append(tile(host.label, count, detail));
   }
-  runnerSummary.replaceChildren(
+  morph(
+    runnerSummary,
     el("h2", undefined, `GitHub Actions jobs running on Dell runners: ${label}`),
     el(
       "p",
@@ -441,15 +463,42 @@ function renderRunnerJobs(now: number): void {
   );
 }
 
-function redraw(): void {
+function drawCharts(): void {
   const now = serverNow();
   const series = hosts.map((h) => samples.get(h.id) ?? []);
   for (const chart of charts) chart.update(series, now - windowSeconds, now);
   deviceChart?.update(samples, now - windowSeconds, now);
-  renderRunnerJobs(now);
-  renderHosts(now);
-  renderTable(now);
-  renderConnection();
+}
+
+function renderText(): void {
+  gate.run(() => {
+    const now = serverNow();
+    renderRunnerJobs(now);
+    renderHosts(now);
+    renderTable(now);
+    renderConnection();
+    lastRender = Date.now();
+  });
+  renderFreshness();
+}
+
+function renderFreshness(): void {
+  const age = lastRender === 0 ? null : Math.max(0, (Date.now() - lastRender) / 1000);
+  const text = paused
+    ? "Updates paused"
+    : gate.deferred
+      ? "Update held while you select"
+      : age === null
+        ? "Loading…"
+        : `Updated ${duration(age)} ago`;
+  if (freshness.textContent !== text) freshness.textContent = text;
+}
+
+const live = (): boolean => !paused && document.visibilityState === "visible";
+
+function redraw(): void {
+  drawCharts();
+  renderText();
 }
 
 // ---------------------------------------------------------------- data flow
@@ -513,7 +562,17 @@ async function main(): Promise<void> {
   await loadHistory();
   redraw();
   connect();
-  setInterval(redraw, 1000);
+  setInterval(() => {
+    if (live()) drawCharts();
+  }, CHART_TICK_MS);
+  setInterval(() => {
+    if (live()) renderText();
+    else renderFreshness();
+  }, TEXT_TICK_MS);
+  setInterval(renderFreshness, 1000);
+  document.addEventListener("visibilitychange", () => {
+    if (live()) redraw();
+  });
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
     for (const chart of charts) chart.retheme();
     deviceChart?.retheme();

@@ -12,6 +12,7 @@ from forge_metrics_agent import (
     Task,
     count_cpus,
     current_runner_jobs,
+    describe_failure,
     is_physical,
     parse_cpu,
     parse_disk,
@@ -19,6 +20,7 @@ from forge_metrics_agent import (
     parse_net,
     parse_task,
     rate,
+    read_host_id,
     read_runner_jobs,
     short_command,
 )
@@ -292,3 +294,19 @@ def test_ingest_model_accepts_attestation() -> None:
                 },
             }
         )
+
+
+def test_host_identity_comes_from_the_host_hostname(tmp_path: Path) -> None:
+    hostname = tmp_path / "hostname"
+    hostname.write_text("dell-fsx3mn2\n")
+    assert read_host_id(hostname) == "dell-fsx3mn2"
+    assert read_host_id(tmp_path / "missing") is None
+    (tmp_path / "blank").write_text("\n")
+    assert read_host_id(tmp_path / "blank") is None
+
+
+def test_ingest_failures_have_fixed_messages() -> None:
+    assert "401" in describe_failure(401)
+    assert "claimed host" in describe_failure(403)
+    assert describe_failure(500) == "ingest failed: HTTP 500"
+    assert describe_failure(0) == "ingest failed: connection error"

@@ -9,6 +9,8 @@ It reads ``/proc`` and an optional runner snapshot. Run the container with ``--n
 Environment:
   FORGE_INGEST_URL         e.g. https://forge-ci-com.onrender.com/api/ingest
   FORGE_INGEST_TOKEN_FILE  file holding this host's bearer token (default /etc/forge-metrics/token)
+  FORGE_HOST_ID            this host's dashboard id, sent as X-Forge-Host (default: the
+                           host's /etc/hostname, mounted at FORGE_HOSTNAME_FILE)
   FORGE_INTERVAL_S         seconds between samples (default 5)
   FORGE_PROC_ROOT          /proc mount (default /proc)
   FORGE_SYS_NET            sysfs net dir used to tell physical NICs (default /sys/class/net)
@@ -478,7 +480,27 @@ class AttestationScanner:
         }
 
 
-def post(url: str, token: str, values: dict[str, object]) -> int:
+def read_host_id(path: Path) -> str | None:
+    """This host's own identity: the host's /etc/hostname, mounted read-only."""
+    try:
+        name = path.read_text(encoding="ascii").strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+    return name or None
+
+
+def describe_failure(code: int) -> str:
+    """A fixed log line per ingest failure: status only, never bodies or tokens."""
+    if code == 401:  # noqa: PLR2004
+        return "ingest rejected the token (401); check the token file"
+    if code == 403:  # noqa: PLR2004
+        return "ingest refused (403): token does not belong to claimed host"
+    if code == 0:
+        return "ingest failed: connection error"
+    return f"ingest failed: HTTP {code}"
+
+
+def post(url: str, token: str, values: dict[str, object], host: str | None = None) -> int:
     parts = urllib.parse.urlsplit(url)
     if parts.scheme != "https" or not parts.hostname:
         msg = f"not an https URL: {url}"
@@ -493,6 +515,7 @@ def post(url: str, token: str, values: dict[str, object]) -> int:
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json",
                 "User-Agent": "forge-metrics-agent/1",
+                **({"X-Forge-Host": host} if host else {}),
             },
         )
         response = connection.getresponse()
@@ -513,6 +536,9 @@ def main() -> int:
         return 2
     token_file = Path(os.environ.get("FORGE_INGEST_TOKEN_FILE", "/etc/forge-metrics/token"))
     token = token_file.read_text(encoding="ascii").strip()
+    host = os.environ.get("FORGE_HOST_ID", "").strip() or read_host_id(
+        Path(os.environ.get("FORGE_HOSTNAME_FILE", "/etc/forge-host/hostname"))
+    )
     interval = float(os.environ.get("FORGE_INTERVAL_S", "5"))
     proc = Proc(
         Path(os.environ.get("FORGE_PROC_ROOT", "/proc")),
@@ -523,20 +549,19 @@ def main() -> int:
     prev, _ = proc.counters()
     backoff = interval
     failing = False
-    log(f"pushing to {url} every {interval:g}s")
+    log(f"pushing to {url} every {interval:g}s as host={host or 'unknown (legacy)'}")
     while True:
         time.sleep(backoff)
         values, prev = proc.sample(prev)
         values.update(current_runner_jobs(Path("/run/forge"), time.time()))
         try:
-            code = post(url, token, values)
-        except (OSError, http.client.HTTPException) as exc:
+            code = post(url, token, values, host)
+        except (OSError, http.client.HTTPException):
             code = 0
-            detail = str(exc)
-        else:
-            detail = f"HTTP {code}"
-        if code == 401:  # noqa: PLR2004 - a bad token never heals by retrying fast
-            log("ingest rejected the token (401); check the token file")
+        if code in {401, 403}:  # a bad or misplaced token never heals by retrying fast
+            if not failing:
+                log(describe_failure(code))
+            failing = True
             backoff = MAX_BACKOFF_S
         elif 200 <= code < 300:  # noqa: PLR2004
             if failing:
@@ -545,7 +570,7 @@ def main() -> int:
             backoff = interval
         else:
             if not failing:
-                log(f"ingest failed: {detail}; backing off")
+                log(f"{describe_failure(code)}; backing off")
             failing = True
             backoff = min(MAX_BACKOFF_S, backoff * 2)
 

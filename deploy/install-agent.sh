@@ -1,10 +1,23 @@
 #!/bin/sh
 # Install or update forge-metrics-agent on one host, over SSH.
 #
-#   deploy/install-agent.sh <ssh-target> <ingest-url> [ssh options...]
+#   deploy/install-agent.sh [--force] <ssh-target> <ingest-url> [ssh options...] </dev/null
+#   printf '%s' "$token" | deploy/install-agent.sh [--force] <ssh-target> <ingest-url> ...
 #
-# The bearer token is read from STDIN (never argv), written to
-# /var/lib/forge-metrics/token (0600, root) on the host, and never echoed.
+# Hosts self-identify: the agent sends the host's own /etc/hostname (mounted
+# read-only) as X-Forge-Host, and the backend rejects a token that does not
+# belong to that host (403), so a token copied to the wrong machine can never
+# post as its owner.
+#
+# Hosts whose hostname is not their dashboard id (e.g. the admin droplet) set
+# FORGE_HOST_ID=<id> in the operator's environment to override it explicitly.
+# Token handling, on the target:
+#   - no token on stdin, none on the host: a fresh one is generated ON the host;
+#     only its host id and sha256 are printed, for FORGE_INGEST_TOKEN_SHA256.
+#   - no token on stdin, one on the host: the existing token is kept.
+#   - token on stdin: written to /var/lib/forge-metrics/token (0600, root), but
+#     an existing DIFFERENT token is never overwritten without --force.
+# The token itself is never echoed or passed in argv.
 # The agent runs as a docker container: python:3.12-alpine, --network host so
 # /proc/net/dev shows the host's interfaces, read-only root, no capabilities.
 # --pid host lets it see soldr paired-worker attestation processes in /proc
@@ -12,6 +25,11 @@
 # Idempotent: re-running replaces the script and restarts the container.
 set -eu
 
+force=0
+if [ "${1:-}" = --force ]; then
+  force=1
+  shift
+fi
 target=${1:?ssh target, e.g. root@192.168.1.173}
 url=${2:?ingest URL, e.g. https://forge-ci-com.onrender.com/api/ingest}
 shift 2
@@ -20,8 +38,18 @@ here=$(cd "$(dirname "$0")/.." && pwd)
 agent="$here/agent/forge_metrics_agent.py"
 image="python:3.12-alpine"
 
-token=$(cat)
-[ -n "$token" ] || { echo "empty token on stdin" >&2; exit 2; }
+host_override=${FORGE_HOST_ID:-}
+case $host_override in
+  *[!a-z0-9-]*) echo "FORGE_HOST_ID must be lowercase letters, digits and dashes" >&2; exit 2 ;;
+esac
+
+token=''
+if [ ! -t 0 ]; then
+  token=$(cat)
+fi
+case $token in
+  *[!A-Za-z0-9._~+/=-]*) echo "token on stdin has unexpected characters" >&2; exit 2 ;;
+esac
 
 # shellcheck disable=SC2029  # $url and $image are expanded locally on purpose
 {
@@ -30,9 +58,27 @@ token=$(cat)
 } | ssh "$@" "$target" "
   set -eu
   install -d -m 0700 /var/lib/forge-metrics
-  IFS= read -r token
+  IFS= read -r token || token=''
   umask 077
-  printf '%s\n' \"\$token\" > /var/lib/forge-metrics/token
+  tf=/var/lib/forge-metrics/token
+  host_id='$host_override'
+  [ -n \"\$host_id\" ] || host_id=\$(tr -d '[:space:]' < /etc/hostname)
+  [ -n \"\$host_id\" ] || { echo 'target has an empty /etc/hostname' >&2; exit 3; }
+  existing=''
+  [ -s \"\$tf\" ] && existing=\$(tr -d '[:space:]' < \"\$tf\")
+  if [ -z \"\$token\" ]; then
+    if [ -z \"\$existing\" ]; then
+      od -An -tx1 -N32 /dev/urandom | tr -d ' \\n' > \"\$tf\"
+      echo \"generated a fresh token on \$host_id\"
+    fi
+  elif [ -n \"\$existing\" ] && [ \"\$existing\" != \"\$token\" ] && [ $force != 1 ]; then
+    echo \"refusing: \$host_id already has a different token (re-run with --force to replace it)\" >&2
+    exit 4
+  else
+    printf '%s' \"\$token\" > \"\$tf\"
+  fi
+  chmod 0600 \"\$tf\"
+  echo \"host=\$host_id token_sha256=\$(tr -d '[:space:]' < \"\$tf\" | sha256sum | cut -d' ' -f1)\"
   cat > /var/lib/forge-metrics/agent.py
   chmod 0644 /var/lib/forge-metrics/agent.py
   docker pull -q $image >/dev/null
@@ -54,7 +100,9 @@ token=$(cat)
     --memory 64m --cpus 0.2 --pids-limit 32 \
     \$logopts \$runner_mount \
     -v /var/lib/forge-metrics:/etc/forge-metrics:ro \
+    -v /etc/hostname:/etc/forge-host/hostname:ro \
     -e FORGE_INGEST_URL=$url \
+    -e FORGE_HOST_ID=\$host_id \
     -e FORGE_INGEST_TOKEN_FILE=/etc/forge-metrics/token \
     $image python /etc/forge-metrics/agent.py >/dev/null
   sleep 8

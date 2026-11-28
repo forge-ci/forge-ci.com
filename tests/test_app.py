@@ -227,3 +227,32 @@ def test_diagnostic_history_preserves_legacy_gaps(client: TestClient, clock: Clo
     assert after is not None
     assert after.psi_io_some_pct == 42
     assert after.devices["sda"].await_ms is None
+
+
+def claim(client: TestClient, token: str, host: str, body: object) -> tuple[int, str]:
+    response = client.post(
+        "/api/ingest",
+        content=json.dumps(body),
+        headers={"Authorization": f"Bearer {token}", "X-Forge-Host": host},
+    )
+    return response.status_code, response.text
+
+
+def test_claimed_host_must_own_the_token(client: TestClient) -> None:
+    # A token copied onto the wrong machine must never post as its owner.
+    code, text = claim(client, TOKEN, "dell-fsx3mn2", sample(cpu_pct=9.0))
+    assert code == 403
+    assert "token does not belong to claimed host" in text
+    assert host_map(client)["dell-jw22zc3"].latest is None
+    assert claim(client, TOKEN, "not-a-host", sample())[0] == 403
+    assert claim(client, "wrong", "dell-jw22zc3", sample())[0] == 401
+    assert claim(client, TOKEN, "dell-jw22zc3", sample(cpu_pct=4.0))[0] == 204
+    latest = host_map(client)["dell-jw22zc3"].latest
+    assert latest is not None
+    assert latest.cpu_pct == 4.0
+
+
+def test_legacy_agents_without_a_claim_are_counted(clock: Clock) -> None:
+    app, dash = create_app(Settings(token_hashes={"dell-jw22zc3": _hash(TOKEN)}), clock=clock)
+    assert post(TestClient(app), TOKEN, sample()) == 204
+    assert dash.legacy_ingests == 1

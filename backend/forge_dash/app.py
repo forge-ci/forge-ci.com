@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import logging
 import time
 from typing import TYPE_CHECKING, Annotated, final
 
@@ -35,6 +36,9 @@ MAX_INGEST_BYTES = 4096
 MAX_SUBSCRIBERS = 500
 KEEPALIVE_S = 15.0
 HISTORY_MAX_S = 2 * 60 * 60
+WRONG_HOST = "token does not belong to claimed host"
+
+_log = logging.getLogger("forge_dash.ingest")
 
 _CSP = (
     "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; "
@@ -57,6 +61,19 @@ def _authenticate(authorization: str | None, token_hashes: dict[str, str]) -> st
     host_id = _host_for_token(token, token_hashes) if scheme.lower() == "bearer" and token else None
     if host_id is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid ingest token")
+    return host_id
+
+
+def _authenticate_claim(
+    authorization: str | None, claimed: str | None, token_hashes: dict[str, str]
+) -> str:
+    """Authenticate a self-identifying agent: the token must belong to the claimed host.
+
+    Never attributes data to a host other than the one the agent says it is.
+    """
+    host_id = _authenticate(authorization, token_hashes)
+    if claimed is not None and not hmac.compare_digest(claimed, host_id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, WRONG_HOST)
     return host_id
 
 
@@ -126,6 +143,19 @@ class Dashboard:
         self.settings = settings
         self.clock = clock
         self.store = MetricsStore((h.id for h in HOSTS), retention_s=settings.retention_s)
+        self.legacy_ingests = 0
+
+    def authenticate(self, authorization: str | None, claimed: str | None) -> str:
+        host_id = _authenticate_claim(authorization, claimed, self.settings.token_hashes)
+        if claimed is None:
+            self.legacy_ingests += 1
+            if self.legacy_ingests == 1 or self.legacy_ingests % 1000 == 0:
+                _log.warning(
+                    "legacy ingest without X-Forge-Host from %s (count=%d)",
+                    host_id,
+                    self.legacy_ingests,
+                )
+        return host_id
 
     async def security_headers(
         self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
@@ -141,8 +171,9 @@ class Dashboard:
         self,
         request: Request,
         authorization: Annotated[str | None, Header()] = None,
+        x_forge_host: Annotated[str | None, Header()] = None,
     ) -> Response:
-        host_id = _authenticate(authorization, self.settings.token_hashes)
+        host_id = self.authenticate(authorization, x_forge_host)
         values = await _read_sample(request)
         now = self.clock()
         previous = self.store.latest(host_id)
@@ -216,9 +247,11 @@ def _install_git_ops(app: FastAPI, dash: Dashboard, browser: BrowserLogin) -> No
 
     @app.post("/api/git-ops/runner-event", status_code=status.HTTP_204_NO_CONTENT)
     async def runner_event(
-        request: Request, authorization: Annotated[str | None, Header()] = None
+        request: Request,
+        authorization: Annotated[str | None, Header()] = None,
+        x_forge_host: Annotated[str | None, Header()] = None,
     ) -> Response:
-        host = _authenticate(authorization, dash.settings.token_hashes)
+        host = dash.authenticate(authorization, x_forge_host)
         if host not in {"dell-fsx3mn2", "dell-jw22zc3"}:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "runner host required")
         event = await _read_git_ops(request, RunnerEvent, MAX_INGEST_BYTES)

@@ -10,7 +10,12 @@ from pydantic import TypeAdapter
 from forge_dash.app import create_app
 from forge_dash.config import Settings
 from forge_dash.models import HostHardware, HostStatus
-from forge_metrics_agent import HardwareReporter, collect_hardware, parse_cpuinfo
+from forge_metrics_agent import (
+    HardwareReporter,
+    collect_hardware,
+    parse_cpuinfo,
+    read_runner_lanes,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -180,3 +185,54 @@ def test_backend_keeps_hardware_across_plain_samples(tmp_path: Path) -> None:
     assert latest is not None
     assert latest.hardware is None
     assert hosts["admin-droplet"].hardware is None
+
+
+LANES = {
+    "cap": 18,
+    "updated_at": 100,
+    "lanes": [
+        {"name": "obs-rust", "max": 6, "busy": 4},
+        {"name": "forge-ci", "max": 6, "busy": 0},
+        {"name": "fastled", "max": 2, "busy": 0},
+        {"name": "talos-hq", "max": 2, "busy": 0},
+    ],
+}
+
+
+def test_lane_capacity_is_min_of_cap_and_lane_max(tmp_path: Path) -> None:
+    path = tmp_path / "runner-lanes.json"
+    _ = path.write_text(json.dumps(LANES))
+    got = read_runner_lanes(path, 110)
+    assert got["gh_runner_slots"] == 16  # min(18, 6+6+2+2)
+    assert got["gh_runner_slots_updated_at"] == 100
+    assert got["gh_lanes"] == LANES["lanes"]
+    _ = path.write_text(json.dumps({**LANES, "cap": 10}))
+    assert read_runner_lanes(path, 110)["gh_runner_slots"] == 10
+    assert read_runner_lanes(path, 1000) == {}  # stale
+    _ = path.write_text('{"cap": "x"}')
+    assert read_runner_lanes(path, 110) == {}
+    assert read_runner_lanes(tmp_path / "missing", 110) == {}
+
+
+def test_backend_accepts_lane_breakdown() -> None:
+    settings = Settings(token_hashes={"dell-jw22zc3": hashlib.sha256(TOKEN.encode()).hexdigest()})
+    app, _ = create_app(settings, clock=lambda: 1000.0)
+    client = TestClient(app)
+    body = json.dumps(
+        {
+            **SAMPLE,
+            "gh_lanes": LANES["lanes"],
+            "gh_runner_slots": 16,
+            "gh_runner_slots_updated_at": 999.0,
+        }
+    )
+    headers = {"Authorization": f"Bearer {TOKEN}"}
+    assert client.post("/api/ingest", content=body, headers=headers).status_code == 204
+    hosts = {h.host.id: h for h in HOSTS.validate_json(client.get("/api/hosts").content)}
+    latest = hosts["dell-jw22zc3"].latest
+    assert latest is not None
+    assert next((lane.name, lane.max, lane.busy) for lane in latest.gh_lanes or []) == (
+        "obs-rust",
+        6,
+        4,
+    )

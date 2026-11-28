@@ -2,6 +2,7 @@
 // malformed payload fails loudly here instead of drawing nonsense.
 
 import { type Hardware, parseHardware } from "./hardware";
+import { parseLanes, type RunnerLane } from "./lanes";
 
 export const METRIC_FIELDS = [
   "cpu_pct",
@@ -108,6 +109,7 @@ export type Sample = Readonly<Record<MetricName | "ts", number>> & {
   readonly runnerCapacity?: { readonly slots: number; readonly observedAt: number };
   readonly runnerJobs?: { readonly count: number; readonly observedAt: number };
   readonly attestation?: Attestation;
+  readonly runnerLanes?: readonly RunnerLane[];
 };
 
 export interface HostInfo {
@@ -182,11 +184,13 @@ export function parseSample(value: unknown): Sample {
       ? { runnerCapacity: { slots, observedAt: slotsAt } }
       : {};
   const attestation = parseAttestation(r["attestation"]);
+  const lanes = parseLanes(r["gh_lanes"]);
   const sample: Sample = {
     ...(out as Sample),
     ...(attestation === undefined ? {} : { attestation }),
     ...(diag === undefined ? {} : { diagnostics: diag }),
     ...capacity,
+    ...(lanes === undefined ? {} : { runnerLanes: lanes }),
   };
   if (
     typeof count === "number" &&

@@ -317,6 +317,68 @@ def current_runner_jobs(directory: Path, now: float) -> dict[str, float | int]:
     return values
 
 
+MAX_LANES = 16
+LANE_NAME = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+
+
+@dataclass(frozen=True)
+class Lane:
+    """One dispatcher lane: configured max slots and slots running a job now."""
+
+    name: str
+    max: int
+    busy: int
+
+
+def _lane(raw: object) -> Lane | None:
+    if not isinstance(raw, dict):
+        return None
+    fields = cast("dict[str, object]", raw)
+    name, most, busy = fields.get("name"), fields.get("max"), fields.get("busy")
+    if (
+        isinstance(name, str)
+        and LANE_NAME.fullmatch(name)
+        and type(most) is int
+        and type(busy) is int
+        and 0 <= most <= MAX_RUNNER_SLOTS
+        and 0 <= busy <= MAX_RUNNER_SLOTS
+    ):
+        return Lane(name, most, busy)
+    return None
+
+
+def read_runner_lanes(path: Path, now: float) -> dict[str, object]:
+    """Per-lane capacity from the running dispatcher's config (written by the host observer).
+
+    The host's real capacity is min(cap, sum of lane max): a runtime override can
+    shrink a lane below what ``cap`` alone suggests.
+    """
+    try:
+        snapshot = cast("object", json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(snapshot, dict):
+        return {}
+    fields = cast("dict[str, object]", snapshot)
+    cap, observed, raw_lanes = fields.get("cap"), fields.get("updated_at"), fields.get("lanes")
+    if (
+        type(cap) is not int
+        or not 0 <= cap <= MAX_RUNNER_SLOTS
+        or type(observed) not in {int, float}
+        or not isinstance(observed, int | float)
+        or not 0 <= now - observed <= RUNNER_COUNT_MAX_AGE_S
+        or not isinstance(raw_lanes, list)
+    ):
+        return {}
+    lanes = [lane for lane in map(_lane, cast("list[object]", raw_lanes)) if lane is not None]
+    lanes = lanes[:MAX_LANES]
+    return {
+        "gh_runner_slots": min(cap, sum(lane.max for lane in lanes)),
+        "gh_runner_slots_updated_at": observed,
+        "gh_lanes": [asdict(lane) for lane in lanes],
+    }
+
+
 ATTESTATION_MARK = "worker-attestation"
 PAIRED_WORKER_MARK = "/forge-ci-paired-worker-"
 MAX_ATTESTATION_REQUESTS = 16
@@ -786,6 +848,7 @@ def main() -> int:
         time.sleep(backoff)
         values, prev = proc.sample(prev)
         values.update(current_runner_jobs(Path("/run/forge"), time.time()))
+        values.update(read_runner_lanes(Path("/run/forge/runner-lanes.json"), time.time()))
         hardware.attach(values, time.monotonic())
         try:
             code = post(url, token, values, host)

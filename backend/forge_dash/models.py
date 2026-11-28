@@ -119,6 +119,16 @@ class HostHardware(BaseModel):
     filesystems: list[FilesystemHardware] = Field(default_factory=list, max_length=8)
 
 
+class RunnerLane(BaseModel):
+    """One dispatcher lane on a host: configured max slots and slots running a job."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
+
+    name: str = Field(pattern=r"^[A-Za-z0-9_.-]{1,64}$")
+    max: int = Field(strict=True, ge=0, le=4096)
+    busy: int = Field(strict=True, ge=0, le=4096)
+
+
 class IngestSample(BaseModel):
     """One utilization sample as an agent posts it. The server stamps the time."""
 
@@ -147,6 +157,7 @@ class IngestSample(BaseModel):
     gh_jobs_updated_at: float | None = Field(default=None, strict=True, gt=0, allow_inf_nan=False)
     attestation: Attestation | None = None
     hardware: HostHardware | None = None
+    gh_lanes: list[RunnerLane] | None = Field(default=None, max_length=16)
 
 
 class Sample(IngestSample):
